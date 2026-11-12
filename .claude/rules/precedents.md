@@ -111,10 +111,22 @@ Suzuki/Buchwald screens, 750 AstraZeneca ELN Buchwald reactions. Many conditions
 useful to say which catalyst, ligand, base and solvent gave which yield for a similar coupling, weak for
 a step with unusual substrates (expected from the descriptions, NOT measured on our route steps). These
 files have no atom maps and no reaction-type tags, so our method (rxnmapper, then the SMARTS library)
-would have to be run on them. There is no ready search: `ord-data` has none, and `ord-interface`
-(Apache-2.0; Postgres with the RDKit cartridge + Valkey + a React front end, Docker optional) was
-archived by its owner (GitHub API `archived: true`, last push 2026-10-06), so it is not a basis. What
-we would write is a loader that turns ORD rows into the columns `precedent_search.py` reads. Cost
+would have to be run on them. CORRECTION (2026-11-13, an earlier version of this paragraph said there
+was no ready search): the files have no search, and the `ord-interface` repository (Apache-2.0; Postgres
+with the RDKit cartridge + Valkey) is archived (GitHub API `archived: true`, last push 2026-10-06), but
+`https://open-reaction-database.org/api` is a live free API (OpenAPI at `/api/openapi.json`, no key was
+needed, title "Open Reaction Database viewer", 93 datasets, 2 428 291 reactions: the same corpus). It has
+`POST /api/search` with substructure, similarity (Tanimoto on Morgan fingerprints) and reaction SMARTS
+(reactant, product and agent templates matched by reaction role), comparisons on any field, aggregates,
+`GET /api/reactions` (up to 100 records by ID) and `POST /api/download`. Measured on 2026-11-13: `/api/health`
+answers; a reaction-SMARTS amide query (`C(=O)O.N>>C(=O)N`) returned HTTP 504 from the load balancer, and a
+similarity search for ibuprofen at threshold 0.7 returned HTTP 504 with the message "the search exceeded
+30.0 seconds while matching similarity ... it ran to completion because that phase cannot be interrupted".
+So the hosted search has a 30 s cap and the two broad queries tried did not fit in it; narrower queries
+(a dataset filter, a rare substructure) were not tried. The local index answers in 0.01-1.4 s. Terms of
+use and rate limits of the hosted service were not found, and every query sends the molecules to a third
+party. Without the hosted search we would write a loader that turns ORD rows into the columns
+`precedent_search.py` reads. Cost
 (estimates, not measured): download of the HTE files alone about 22 MB, all of ORD about 1.3 GB (our
 Hugging Face download of 12.7 MB took about two minutes), about +10 % rows in the 3.5 GB resident
 index, rxnmapper over 179 000 reactions is the unknown part (hours at most, not tested).
@@ -150,6 +162,14 @@ Options, none decided:
 3. **Use ORD with conditions** (temperature, time, amounts, procedure text). Not recommended: it is the
    thing the safety rule exists to prevent, and a verbatim patent procedure would be a synthesis
    procedure whatever the label says.
+
+4. **Query the hosted ORD API for the HTE/non-patent part only** (allowed since 2026-11-13: free, no
+   download). Needs the same rule widening as option 2, a filter on dataset names, and dropping the
+   temperature, time, amount and procedure fields from every record on our side before the model or the
+   user sees it (the API returns them). Open points: the 30 s cap and 504s measured above, no stated
+   terms or rate limits, the molecule of every query goes to a third party, and no atom-map or
+   reaction-type filter, so the "same reaction type" logic of the local method is not available. Try it
+   only if option 1 shows a gap, and measure narrower queries first.
 
 Sample files are in the session scratchpad, not in the project; no dependency, setting or prompt was
 changed.

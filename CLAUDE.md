@@ -6,12 +6,21 @@ ChatInvent paper; target level is a **medium-grade, local production system** (s
 
 ## Engineering stance
 - **Target: medium production, local.** Reliable, tested, observable, failing safely, and runnable by
-  one person on one machine (the owner's Mac) without cloud services. Not an enterprise platform: no
-  Kubernetes, no managed cloud, no multi-tenant features, nothing added only to look impressive. Add
+  one person on one machine (the owner's Mac); free external services are allowed (next bullet). Not an
+  enterprise platform: no Kubernetes, no cloud hosting of our own system, no multi-tenant features,
+  nothing added only to look impressive. Add
   infrastructure (auth, persistence, containers, local checks, rate limiting) when it makes the system
   more reliable, and write down why. The ordered list is `.claude/rules/production-roadmap.md`.
-- **Open or free tools only, and reuse before you write.** No commercially closed, paid or unavailable
-  software may be a dependency (for example OpenEye, hosted tracing services). If a ready open MCP server or
+- **Free tools only; a free hosted API or website is fine (owner's rule, clarified 2026-11-13).** The
+  exclusion is for commercially closed, paid or inaccessible software the owner cannot get or will not pay
+  for (for example OpenEye, MolMIM, paid tracing services). A service that is free and reachable by API or
+  over the internet MAY be used instead of installing and running the same thing on the Mac; local
+  installs cost disk, memory and setup time, so check for a free hosted option first and prefer it when
+  it is reliable enough (measure that, do not assume). Record for each one: who runs it, its terms and
+  limits, what we send it (users' chemistry questions leave the machine), and what happens when it is
+  down (tools return `{"error","hint"}`, never raise). Installing locally needs a reason written down
+  (no free hosted service found, too slow or unreliable when measured, or privacy).
+- **Reuse before you write.** If a ready open MCP server or
   library exists for the job, use it instead of writing the same thing from scratch (check first, record the
   licence and why a custom one was needed if it was). Prefer permissive open licences (Apache-2.0, MIT,
   BSD) and record the licence of anything new. Datasets need a licence that allows our use. The LLM

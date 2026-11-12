@@ -6,9 +6,11 @@ cheminformatics tools (RDKit, PubChem) through native tool calling. It mirrors t
 AstraZeneca's paper *"Democratising real-world drug discovery through agentic AI"* (ChatInvent).
 
 **Scope: a medium-grade system that runs locally.** The target is one person running it on one
-machine, with tests, safe failure and traceability, and no cloud services. It is deliberately not an
-enterprise platform. Only open or free software is used (Apache-2.0, MIT, BSD and similar); commercially
-closed tools are excluded. The one hosted service is the Gemini API (free tier) for the language model.
+machine, with tests, safe failure and traceability. It is deliberately not an enterprise platform. Only
+free software and free services are used; commercially closed or paid ones are excluded because the owner
+has no access to them. A free hosted API or website is acceptable (owner's rule of 2026-11-13) and is
+preferred to a heavy local install when it is reliable enough; licences of code are Apache-2.0, MIT, BSD and
+similar. Today the hosted services are the Gemini API (free tier) for the language model and PubChem.
 Items 1 to 7 of the local-production plan are implemented (check script and push hook, container files,
 API keys and rate limit, request limits, SQLite memory, request ids and metrics, startup checks); item 8, a
 code-level safety filter for hazardous substances, is not (see Limitations and Future work; the ordered plan
@@ -280,7 +282,8 @@ provider's message.
 **Observability.** Every LLM call, tool call and routing step is one JSON line in `logs/trace.jsonl`
 (timestamp, session, agent, tool, arguments, duration, error, tokens). A LangChain callback sees local and
 MCP tools uniformly. A hosted tracing service (Langfuse cloud) was **not** added: it is an external service
-that would receive users' chemistry questions, which does not fit a local-only system. A self-hosted or
+that would receive users' chemistry questions (a privacy choice; the 2026-11-13 rule allows free hosted
+services in general, but each must state what it receives). A self-hosted or
 OpenTelemetry setup stays a possible later step.
 
 ## Tools

@@ -1,7 +1,11 @@
 # Production roadmap (what is missing, in order, and why)
 
-Target level (owner's decision, 2026-11-12): medium production, local. One machine, no cloud
-services, only open or free software, nothing built only to look impressive.
+Target level (owner's decision, 2026-11-12): medium production, local. One machine, only free
+software, nothing built only to look impressive. Clarified by the owner on 2026-11-13: "no cloud services"
+was too strict; what is excluded is paid or closed software the owner cannot get. A free hosted API or
+website may be used instead of a heavy local install (see CLAUDE.md, Engineering stance). Items below were
+decided and built under the stricter reading; revisit a local component only when a free hosted
+replacement is shown to be reliable (status.md lists the candidates).
 
 Status on 2026-11-12 (evening): items 1-7 and 9 are implemented (owner's go-ahead for 1-7 given the same day);
 item 8 is not, it needs the owner's choice of list. The README states the scope; update that paragraph as
