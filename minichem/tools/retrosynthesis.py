@@ -54,7 +54,8 @@ class MockRetrosynthesis:
 class AiZynthRetrosynthesis:
     """Adapter over AiZynthFinder's documented Python interface.
 
-    Untested in this repository: it requires models that are not installed here.
+    Needs aizynthfinder in the running interpreter, which cannot share this project's
+    environment (it requires rdkit<2024 and numpy<2). Smoke-tested by hand only.
     The statistics keys are read with `.get` so a missing key degrades to a default.
     """
 

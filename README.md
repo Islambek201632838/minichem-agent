@@ -211,13 +211,17 @@ explore chemical space beyond local edits, and some outputs are chemically odd (
 **Retrosynthesis (optional, off by default).** `minichem/tools/retrosynthesis.py` defines a
 `Retrosynthesis` protocol that returns only counts and a score (no reagents or conditions), a
 `MockRetrosynthesis` used in tests, and an `AiZynthRetrosynthesis` adapter. Nothing is downloaded or
-installed automatically. To enable it, install AiZynthFinder and download its models yourself
-(<https://molecularai.github.io/aizynthfinder/>), then set `ENABLE_RETROSYNTHESIS=true` and
-`AIZYNTH_CONFIG=/path/to/config.yml`. The adapter uses only the calls shown in AiZynthFinder's Python
-interface documentation (`AiZynthFinder(configfile=...)`, `stock.select`, `expansion_policy.select`,
-`target_smiles`, `tree_search`, `build_routes`, `extract_statistics`) but I could not run it here, so it is
-**untested**. The statistics keys it reads (`is_solved`, `number_of_solved_routes`, `number_of_steps`,
-`top_score`) are not confirmed by that page and are read with `.get`.
+installed automatically. AiZynthFinder (<https://molecularai.github.io/aizynthfinder/>) cannot share this
+project's environment: version 4.4.1 requires `rdkit<2024` and `numpy<2`, while this project pins a newer
+RDKit. It has to live in its own virtualenv (Python 3.10-3.12, plus `pyarrow==17.0.0` to stay compatible with
+NumPy 1), with models fetched by its `download_public_data` command (about 770 MB). The adapter uses only
+the calls shown in AiZynthFinder's Python interface documentation (`AiZynthFinder(configfile=...)`,
+`stock.select`, `expansion_policy.select`, `target_smiles`, `tree_search`, `build_routes`,
+`extract_statistics`). I ran it once by hand against the public USPTO models and ZINC stock in such a
+separate environment: it returned results and the statistics keys it reads (`is_solved`,
+`number_of_solved_routes`, `number_of_steps`, `top_score`) were present. This is a smoke test only; it is
+not in the test suite and the agent does not call it, because the two environments cannot be imported
+together. Wiring it in would need a separate process (for example a second MCP server).
 
 **Safety.** All tools are read-only computation. The shared prompt forbids synthesis procedures,
 reagent amounts and advice about hazardous or controlled substances, and the synthesis agent only reports
@@ -292,13 +296,15 @@ wrong molecular weight; a judge may not.
 - **Verbatim SMILES is partly detected, not guaranteed.** Between agents it is enforced by the registry. Inside a
   sub-agent the model copies SMILES into tool arguments and sometimes gets it wrong (2 of 69 runs here). A
   fix would be to let tools accept handles and resolve them in code.
-- Retrosynthesis adapter is untested. Conversation memory is in-process (`MemorySaver`), lost on restart, and
+- Retrosynthesis adapter was only smoke-tested by hand in a separate environment and is not connected to the
+  agent (RDKit version conflict). Conversation memory is in-process (`MemorySaver`), lost on restart, and
   the full history is not summarised. The suite and the model are small, see above.
 
 ## Future work
 
 - A real generative model (REINVENT) behind the same `generate_analogues` interface.
-- AiZynthFinder routes via the existing `Retrosynthesis` interface, tested against a real install.
+- AiZynthFinder routes via the existing `Retrosynthesis` interface, run as a separate process with its own
+  environment and covered by an automated test against a real install.
 - Handle-based tool arguments, so SMILES never pass through the model at all.
 - A2A so separately deployed agents can call each other; more MCP servers for other teams.
 - Long-conversation memory (summarisation, persistent checkpointer such as SQLite or Postgres).

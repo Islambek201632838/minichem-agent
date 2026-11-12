@@ -7,7 +7,9 @@ so **readability and explainability beat features**. Keep it small; do not add a
 
 Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `README.md`.
 
-## Commands (always `uv run`; the system python is 3.9 and will not work)
+## Commands (always `uv run`; the project venv is Python 3.12 managed by uv)
+`/usr/bin/python3` is macOS's 3.9 and will not work. On the owner's Mac `python3` in `PATH` is now uv's 3.12
+(`~/.local/bin`, installed with `uv python install 3.12 --default --preview`), but still use `uv run`.
 ```bash
 uv sync                                          # install, versions pinned with == in pyproject.toml
 uv run pytest -q                                 # 97 tests, no network, no API key, ~5 s
