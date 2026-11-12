@@ -14,5 +14,5 @@ from minichem.tools.registry import synthesis_tools
 def build_synthesis_agent(
     llm: BaseChatModel, prompts: dict[str, str], extra_tools: Sequence[BaseTool] = ()
 ) -> SubAgent:
-    """`extra_tools` holds `retrosynthesis_check` when retrosynthesis was explicitly enabled."""
+    """`extra_tools` holds the tools of the optional retrosynthesis and precedent servers."""
     return build_subagent("synthesis", llm, [*synthesis_tools(), *extra_tools], prompts)

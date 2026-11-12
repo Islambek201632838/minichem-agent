@@ -23,7 +23,7 @@ from langgraph.types import Command
 from minichem import molecules as mol
 
 # Tool arguments that hold molecules. Everything else (names, counts, constraints) is left alone.
-SMILES_ARGS = frozenset({"smiles", "smiles_list", "query", "candidates"})
+SMILES_ARGS = frozenset({"smiles", "smiles_list", "query", "candidates", "product", "reactants"})
 _HANDLE_ONLY = re.compile(r"M(\d+)")
 _QUOTES = " `'\""
 
