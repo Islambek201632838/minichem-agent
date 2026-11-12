@@ -29,7 +29,8 @@ Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `READM
 (`~/.local/bin`, installed with `uv python install 3.12 --default --preview`), but still use `uv run`.
 ```bash
 uv sync                                          # install, versions pinned with == in pyproject.toml
-uv run pytest -q                                 # 134 tests, no network, no API key, ~5 s
+uv run pytest -q                                 # 210 tests, no network, no API key, ~10 s
+scripts/check.sh                                 # ruff check + format --check + pytest (pre-push hook: scripts/install-hooks.sh)
 uv run ruff check . && uv run ruff format .      # must be clean before finishing
 uv run python -m minichem.cli -v "question"      # real Gemini + MCP + PubChem, needs .env
 uv run uvicorn app.api:app --port 8000           # API
@@ -41,23 +42,25 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
 - `minichem/config.py` all settings (pydantic-settings). `state.py` graph state. `graph.py` LangGraph wiring.
 - `minichem/agents/` `supervisor.py` (Decision, context), `base.py` (sub-agent build/run, retyping detector), one file per agent.
 - `minichem/tools/` `chem.py` pure RDKit core, `models.py` Pydantic I/O, `analogues.py`, `synthesis.py`,
-  `pubchem.py`, `retrosynthesis.py` (optional, off), `registry.py` (LangChain tool wrappers).
+  `pubchem.py`, `retrosynthesis.py` (optional, off), `mol2mol.py` (REINVENT 4 Mol2Mol, optional, off), `registry.py` (LangChain tool wrappers).
 - `minichem/molecules.py` SMILES handles, masking, guard. `handles.py` handle-based tool arguments (middleware). `tracing.py` JSONL trace + token counts.
+- `minichem/jsonl.py` rotating JSONL log, `sessions.py` SQLite memory limits, `concurrency.py` slots for retrosynthesis tools. `app/security.py` (API keys, rate limit), `app/metrics.py` (`/metrics`). `scripts/check.sh`, `Dockerfile`, `compose.yaml`.
 - `minichem/prompts/*.md` all prompts. `assistant.py` public entry (`open_assistant`, `ChemAssistant.ask`).
-- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/retro_server.py` (retrosynthesis check + routes, runs in its own venv, off by default; steps are validated by `minichem/tools/route_check.py` and named by `minichem/tools/reaction_types.py`). `app/api.py`, `ui/app.py` (+ `ui/route_view.py`: route schemes from `ChatResult.routes`), `minichem/cli.py`.
-- `eval/` `golden.yaml`, `checks.py`, `run_eval.py`, `results/` (+ `archive/`). `tests/` mirrors the code.
+- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/reinvent_server.py` (REINVENT sampling, own venv, off by default), `mcp_server/precedent_server.py` (patent precedents, own venv, off by default; `minichem/tools/precedents.py` models, `precedent_search.py` engine, `precedent_rank.py` ranking), `mcp_server/retro_server.py` (retrosynthesis check + routes, runs in its own venv, off by default; steps are validated by `minichem/tools/route_check.py` and named by `minichem/tools/reaction_types.py`). `app/api.py`, `ui/app.py` (+ `ui/route_view.py`: route schemes from `ChatResult.routes`), `minichem/cli.py`.
+- `eval/` `golden.yaml`, `complex.yaml` (drug-sized molecules), `checks.py`, `run_eval.py`, `results/` (+ `archive/`). `tests/` mirrors the code.
 
 ## Hard rules
 - **Never print or commit `.env`** (holds the Gemini key; `GEMINI_API_KEY` is accepted as alias of `GOOGLE_API_KEY`). Only `.env.example` is committed.
 - **All chemistry goes through tools.** The LLM must never compute or guess chemical facts. This rule lives in `prompts/common.md`.
 - **SMILES are data.** Neither the supervisor nor the sub-agents see or write SMILES; they use handles (`M1`) in tasks, tool arguments and tool results, and code resolves them. See `.claude/rules/smiles-handles.md`.
-- **Safety:** tools are read-only computation. No synthesis procedures (no amounts, solvents, temperatures, work-up) and no hazardous-substance advice. The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) with a textbook reaction name and a class-level reagent hint (e.g. 'a base', 'a palladium catalyst') from a fixed table in `reaction_types.py`, never LLM-written, and never amounts, solvents or temperatures; hazardous and controlled substances are declined without tools.
+- **Safety:** tools are read-only computation. No synthesis procedures (no amounts, temperatures, times, work-up) and no hazardous-substance advice. Solvents and reagents are named ONLY when `find_reaction_precedents` (optional, off) returns them from a US patent record: reported exactly as returned and labelled "from US patents, text-mined, not verified", never LLM-written or completed (owner's decision of 2026-11-12, variant B; the one exception to the old rule "the synthesis agent names no solvents"). The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) with a textbook reaction name and a class-level reagent hint (e.g. 'a base', 'a palladium catalyst') from a fixed table in `reaction_types.py`, never LLM-written, and never amounts, solvents or temperatures (solvents only through the precedent tool above); hazardous and controlled substances are declined without tools.
 - **No invented APIs.** Check installed signatures before using a library (several things differed from memory, see gotchas).
 - **Tools never raise into the agent loop**; they return `{"error","hint"}` or per-item `errors`.
 - Prompts stay in `prompts/*.md`, config stays in `config.py`, no magic strings scattered, no bare `except`, no emojis in code/README, no commented-out code.
 - Never fabricate eval numbers. README numbers must come from a JSON in `eval/results/`.
 
 ## Gotchas learned the hard way
+- REINVENT 4's `pyproject.toml` omits `scipy`, but `reinvent.runmodes` imports it: add it to the REINVENT venv by hand. REINVENT seeds are reproducible only on the same device (CPU and MPS give different lists).
 - Gemini `AIMessage.content` is a list of blocks (with signatures). Use `message.text`, not `.content`.
 - Use `langchain.agents.create_agent`, not the deprecated `langgraph.prebuilt.create_react_agent`. Pass `checkpointer=False` so the inner loop does not inherit the parent's checkpointer.
 - PubChem property names are `SMILES`/`ConnectivitySMILES`; `CanonicalSMILES`/`IsomericSMILES` are silently ignored now. SMILES->name uses POST.
@@ -66,6 +69,7 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
 - Trace agent names travel in run metadata: `graph.with_config(metadata={"agent": name})`. The supervisor runnable is configured the same way.
 - Test fakes: each scripted tool call needs a unique id and a distinct message object. Reusing one object (`[msg]*10`) makes `add_messages` treat it as an update and breaks the agent loop (`KeyError: 'model'`).
 - RDKit HBA/HBD definitions differ from PubChem (aspirin HBA = 3 vs 4). Golden values follow RDKit.
+- `AsyncSqliteSaver.aprune` exists but raises NotImplementedError (langgraph-checkpoint-sqlite 3.1.3); compaction in `sessions.py` is raw SQL. The API runs with `/chat` OPEN when `API_KEYS` is empty; tests clear key variables in `conftest.py`.
 - Temperature is deliberately unset (Google advises against lowering it for Gemini 3).
 
 ## Definition of done for a change

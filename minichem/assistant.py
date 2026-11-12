@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 from collections.abc import AsyncIterator
@@ -12,6 +13,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel
 
 from minichem import molecules as mol
@@ -20,16 +22,21 @@ from minichem.agents.design import build_design_agent
 from minichem.agents.supervisor import Decision
 from minichem.agents.synthesis import build_synthesis_agent
 from minichem.agents.utility import build_utility_agent
+from minichem.concurrency import limit_concurrency
 from minichem.config import PROJECT_ROOT, Settings, get_settings
 from minichem.graph import RunContext, build_graph
+from minichem.jsonl import JsonlLog
 from minichem.llm import build_chat_model
 from minichem.prompts import load_prompts
+from minichem.sessions import SessionLimits, SessionStore
 from minichem.tools.pubchem import ChemLookup, OfflinePubChem, PubChemClient
 from minichem.tools.retrosynthesis import RoutesResponse
 from minichem.tracing import ToolCall, Tracer
 
 MCP_SERVER_NAME = "rdkit"
 RETRO_SERVER_NAME = "retrosynthesis"
+REINVENT_SERVER_NAME = "reinvent"
+PRECEDENT_SERVER_NAME = "precedents"
 ROUTES_TOOL = "retrosynthesis_routes"
 RECURSION_LIMIT = 60  # outer graph: generous, the real budget is max_supervisor_steps
 
@@ -43,6 +50,7 @@ class ChatResult(BaseModel):
     """One answered turn."""
 
     session_id: str
+    request_id: str = ""
     answer: str
     molecules: list[MoleculeRef]
     tool_calls: list[ToolCall]
@@ -66,13 +74,25 @@ def _routes_of(tracer: Tracer) -> list[RoutesResponse]:
 class ChemAssistant:
     """Wraps the compiled graph. Conversation memory is keyed by `session_id`."""
 
-    def __init__(self, graph, settings: Settings) -> None:
+    def __init__(self, graph, settings: Settings, sessions: SessionStore | None = None) -> None:
         self._graph = graph
         self._settings = settings
+        self._sessions = sessions
+        self._trace_log = JsonlLog(
+            settings.trace_path, settings.log_max_bytes, settings.log_backups
+        )
 
-    async def ask(self, message: str, session_id: str = "default") -> ChatResult:
-        """Run one user turn through the supervisor graph."""
-        tracer = Tracer(self._settings.trace_path, session_id)
+    async def ask(
+        self, message: str, session_id: str = "default", request_id: str = ""
+    ) -> ChatResult:
+        """Run one user turn through the supervisor graph.
+
+        `request_id` is written on every trace line of this turn. With persistent sessions,
+        raises SessionFullError when the session used up its turns.
+        """
+        if self._sessions is not None:
+            await self._sessions.start_turn(session_id)
+        tracer = Tracer(self._trace_log, session_id, request_id)
         started = time.perf_counter()
         final = await self._graph.ainvoke(
             {"messages": [HumanMessage(content=message)]},
@@ -83,6 +103,8 @@ class ChemAssistant:
             },
             context=RunContext(tracer=tracer),
         )
+        if self._sessions is not None:
+            await self._sessions.finish_turn(session_id)
         registry = final["molecules"]
         refs = [
             MoleculeRef(id=mol.handle(i), smiles=registry[i])
@@ -91,6 +113,7 @@ class ChemAssistant:
         ]
         return ChatResult(
             session_id=session_id,
+            request_id=request_id,
             answer=final["answer"],
             molecules=refs,
             tool_calls=tracer.tool_calls,
@@ -124,12 +147,55 @@ def _retro_server_config(settings: Settings) -> dict:
     }
 
 
+def _reinvent_server_config(settings: Settings) -> dict:
+    """Stdio config for the REINVENT server, which runs in REINVENT 4's own venv."""
+    if settings.reinvent_python is None or settings.reinvent_prior_dir is None:
+        raise RuntimeError(
+            "ENABLE_REINVENT needs REINVENT_PYTHON and REINVENT_PRIOR_DIR (see README)."
+        )
+    return {
+        "transport": "stdio",
+        "command": str(settings.reinvent_python),
+        "args": ["-m", "mcp_server.reinvent_server"],
+        "cwd": str(PROJECT_ROOT),
+        "env": {
+            "REINVENT_PRIOR_DIR": str(settings.reinvent_prior_dir),
+            "REINVENT_DEVICE": settings.reinvent_device,
+            "PYTHONPATH": str(PROJECT_ROOT),
+        },
+    }
+
+
+def _precedent_server_config(settings: Settings) -> dict:
+    """Stdio config for the precedent server, which runs in its own venv (rxnmapper, torch)."""
+    if settings.precedents_python is None or settings.precedents_data_dir is None:
+        raise RuntimeError(
+            "ENABLE_PRECEDENTS needs PRECEDENTS_PYTHON and PRECEDENTS_DATA_DIR (see README)."
+        )
+    return {
+        "transport": "stdio",
+        "command": str(settings.precedents_python),
+        "args": ["-m", "mcp_server.precedent_server"],
+        "cwd": str(PROJECT_ROOT),
+        "env": {
+            "PRECEDENTS_DATA_DIR": str(settings.precedents_data_dir),
+            "PYTHONPATH": str(PROJECT_ROOT),
+        },
+    }
+
+
 @asynccontextmanager
-async def open_assistant(settings: Settings | None = None) -> AsyncIterator[ChemAssistant]:
+async def open_assistant(
+    settings: Settings | None = None, *, persistent_sessions: bool = False
+) -> AsyncIterator[ChemAssistant]:
     """Start the MCP server (stdio), build the agents and graph, and yield the assistant.
 
     One persistent MCP session per server is reused for every tool call (no process spawn per
-    call). The retrosynthesis server is started only when ENABLE_RETROSYNTHESIS is set.
+    call). The retrosynthesis server is started only when ENABLE_RETROSYNTHESIS is set, and its
+    tools share `retro_max_concurrent` slots. The REINVENT server is started only when
+    ENABLE_REINVENT is set, the precedent server only when ENABLE_PRECEDENTS is set. Memory is
+    in-process unless `persistent_sessions` is set (the API does): then it is a SQLite file with
+    the limits of `minichem.sessions`.
     """
     settings = settings or get_settings()
     prompts = load_prompts()
@@ -144,6 +210,10 @@ async def open_assistant(settings: Settings | None = None) -> AsyncIterator[Chem
     }
     if settings.enable_retrosynthesis:
         servers[RETRO_SERVER_NAME] = _retro_server_config(settings)
+    if settings.enable_reinvent:
+        servers[REINVENT_SERVER_NAME] = _reinvent_server_config(settings)
+    if settings.enable_precedents:
+        servers[PRECEDENT_SERVER_NAME] = _precedent_server_config(settings)
     client = MultiServerMCPClient(servers)
     async with AsyncExitStack() as stack:
         mcp_tools = await load_mcp_tools(
@@ -152,11 +222,41 @@ async def open_assistant(settings: Settings | None = None) -> AsyncIterator[Chem
         retro_tools: list[BaseTool] = []
         if settings.enable_retrosynthesis:
             retro_session = await stack.enter_async_context(client.session(RETRO_SERVER_NAME))
-            retro_tools = await load_mcp_tools(retro_session)
+            slots = asyncio.Semaphore(settings.retro_max_concurrent)
+            retro_tools = [
+                limit_concurrency(tool, slots, settings.retro_queue_wait_s)
+                for tool in await load_mcp_tools(retro_session)
+            ]
+        reinvent_tools: list[BaseTool] = []
+        if settings.enable_reinvent:
+            reinvent_session = await stack.enter_async_context(client.session(REINVENT_SERVER_NAME))
+            reinvent_tools = await load_mcp_tools(reinvent_session)
+        precedent_tools: list[BaseTool] = []
+        if settings.enable_precedents:
+            precedent_session = await stack.enter_async_context(
+                client.session(PRECEDENT_SERVER_NAME)
+            )
+            precedent_tools = await load_mcp_tools(precedent_session)
+        checkpointer: MemorySaver | AsyncSqliteSaver = MemorySaver()
+        sessions = None
+        if persistent_sessions:
+            settings.session_db_path.parent.mkdir(parents=True, exist_ok=True)
+            checkpointer = await stack.enter_async_context(
+                AsyncSqliteSaver.from_conn_string(str(settings.session_db_path))
+            )
+            sessions = SessionStore(
+                checkpointer,
+                SessionLimits(
+                    ttl_s=settings.session_ttl_days * 86400,
+                    max_sessions=settings.session_max_sessions,
+                    max_turns=settings.session_max_turns,
+                ),
+            )
+            await sessions.setup()
         agents: dict[str, SubAgent] = {
             "utility": build_utility_agent(llm, prompts, _build_lookup(settings)),
-            "design": build_design_agent(llm, prompts, mcp_tools),
-            "synthesis": build_synthesis_agent(llm, prompts, retro_tools),
+            "design": build_design_agent(llm, prompts, mcp_tools, reinvent_tools),
+            "synthesis": build_synthesis_agent(llm, prompts, retro_tools + precedent_tools),
         }
         supervisor_llm = llm.with_structured_output(Decision).with_config(
             metadata={"agent": "supervisor"}
@@ -166,6 +266,6 @@ async def open_assistant(settings: Settings | None = None) -> AsyncIterator[Chem
             agents=agents,
             prompts=prompts,
             settings=settings,
-            checkpointer=MemorySaver(),
+            checkpointer=checkpointer,
         )
-        yield ChemAssistant(graph, settings)
+        yield ChemAssistant(graph, settings, sessions)
