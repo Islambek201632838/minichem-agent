@@ -87,13 +87,11 @@ async def test_name_lookup_routes_to_utility_only_and_answer_has_exact_smiles(tm
     assert assistant.models["synthesis"].cursor == 0
 
 
-async def test_user_smiles_reach_the_agent_verbatim_and_supervisor_never_sees_tool_smiles(
-    tmp_path,
-):
+async def test_agent_works_with_handles_and_the_tool_receives_the_exact_smiles(tmp_path):
     def design_call(messages):
-        assert CANONICAL_LONG in human_text(messages)
-        assert "M1" not in human_text(messages)  # handle was expanded by code
-        return tool_call("calculate_properties", smiles_list=[CANONICAL_LONG])
+        assert "M1" in human_text(messages)
+        assert CANONICAL_LONG not in human_text(messages)  # the agent is never given the SMILES
+        return tool_call("calculate_properties", smiles_list=["M1"])
 
     supervisor = ScriptedSupervisor(
         [route("design", "Calculate the properties of M1."), finish("MW of M1 is in the report.")]
@@ -103,6 +101,7 @@ async def test_user_smiles_reach_the_agent_verbatim_and_supervisor_never_sees_to
     )
     result = await assistant.ask(f"Give me properties of {LONG_SMILES}")
 
+    # The tracer sits inside the tool call, so the trace and the API keep the real structure.
     assert result.tool_calls[0].arguments == {"smiles_list": [CANONICAL_LONG]}
     assert result.warnings == []
     context_block = str(supervisor.seen[0][-1].content)
@@ -115,12 +114,56 @@ async def test_user_smiles_reach_the_agent_verbatim_and_supervisor_never_sees_to
     assert CANONICAL_LONG not in followup
 
 
+async def test_tool_results_reach_the_model_as_handles_and_new_molecules_chain_in_one_run(
+    tmp_path,
+):
+    expected = chem.canonical(IBUPROFEN)
+    shown: list[str] = []
+
+    def second_call(messages):
+        shown.append(str(messages[-1].content))  # the name_to_smiles result, as the model sees it
+        return tool_call("smiles_to_name", smiles="M1")
+
+    supervisor = ScriptedSupervisor([route("utility", "Name ibuprofen."), finish("Done.")])
+    assistant = make_assistant(
+        tmp_path,
+        supervisor,
+        utility=[
+            tool_call("name_to_smiles", name="ibuprofen"),
+            second_call,
+            lambda messages: shown.append(str(messages[-1].content)) or AIMessage(content="ok"),
+        ],
+    )
+    result = await assistant.ask("What is ibuprofen?")
+
+    assert '"id":"M1"' in shown[0]
+    assert all(expected not in text for text in shown)
+    assert result.warnings == []
+    assert [c.tool for c in result.tool_calls] == ["name_to_smiles", "smiles_to_name"]
+    assert result.tool_calls[1].arguments == {"smiles": expected}  # resolved before the call
+
+
+async def test_unknown_handle_gives_a_tool_error_the_agent_can_read(tmp_path):
+    supervisor = ScriptedSupervisor([route("design", "Properties of M9."), finish("Failed.")])
+    assistant = make_assistant(
+        tmp_path,
+        supervisor,
+        design=[
+            tool_call("calculate_properties", smiles_list=["M9"]),
+            AIMessage(content="M9 is invalid"),
+        ],
+    )
+    result = await assistant.ask("Properties of M9")
+    assert result.tool_calls[0].error is not None
+    assert result.warnings == []  # a handle is never a retyped SMILES
+
+
 async def test_multi_step_workflow_passes_tool_produced_smiles_between_agents(tmp_path):
     expected = chem.canonical(IBUPROFEN)
 
     def synthesis_call(messages):
-        assert expected in human_text(messages)
-        return tool_call("sa_score", smiles_list=[expected])
+        assert "M1" in human_text(messages)
+        return tool_call("sa_score", smiles_list=["M1"])
 
     supervisor = ScriptedSupervisor(
         [
@@ -138,6 +181,7 @@ async def test_multi_step_workflow_passes_tool_produced_smiles_between_agents(tm
     result = await assistant.ask("How hard is ibuprofen to make?")
 
     assert [c.agent for c in result.tool_calls] == ["utility", "synthesis"]
+    assert result.tool_calls[1].arguments == {"smiles_list": [expected]}
     assert result.warnings == []
     assert f"`{expected}`" in result.answer
 
@@ -153,6 +197,28 @@ async def test_retyped_smiles_argument_is_detected(tmp_path):
     result = await assistant.ask(f"Properties of {LONG_SMILES}")
     assert altered != LONG_SMILES
     assert any(altered in w for w in result.warnings)
+
+
+async def test_correct_but_raw_smiles_argument_is_still_flagged_unless_the_user_typed_it(
+    tmp_path,
+):
+    supervisor = ScriptedSupervisor(
+        [route("design", "Properties of M1."), route("design", "Again."), finish("Done.")]
+    )
+    typed_by_user = "c1ccccc1O"
+    assistant = make_assistant(
+        tmp_path,
+        supervisor,
+        design=[
+            tool_call("calculate_properties", smiles_list=[CANONICAL_LONG]),
+            AIMessage(content="ok"),
+            tool_call("calculate_properties", smiles_list=[typed_by_user]),
+            AIMessage(content="ok"),
+        ],
+    )
+    result = await assistant.ask(f"Properties of {LONG_SMILES} and {typed_by_user}")
+    assert [w for w in result.warnings if CANONICAL_LONG in w]
+    assert not [w for w in result.warnings if typed_by_user in w]
 
 
 async def test_final_answer_with_an_invented_smiles_is_flagged(tmp_path):
@@ -195,11 +261,9 @@ async def test_delegating_with_an_empty_task_is_treated_as_unusable(tmp_path):
 
 
 async def test_session_memory_keeps_molecules_and_history_per_session(tmp_path):
-    expected = chem.canonical(IBUPROFEN)
-
     def synthesis_call(messages):
-        assert expected in human_text(messages)
-        return tool_call("sa_score", smiles_list=[expected])
+        assert "M1" in human_text(messages)
+        return tool_call("sa_score", smiles_list=["M1"])
 
     supervisor = ScriptedSupervisor(
         [

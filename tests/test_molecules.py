@@ -27,6 +27,12 @@ def test_with_handles_replaces_smiles_by_ids():
     assert out == {"results": [{"id": "M2", "mw": 46.07}]}
 
 
+def test_with_handles_also_replaces_whole_value_spellings_of_registered_molecules():
+    payload = {"input": "OCC", "unresolved": [IBUPROFEN, ASPIRIN], "note": "CCO is ethanol"}
+    out = mol.with_handles(payload, [ASPIRIN, ETHANOL])
+    assert out == {"input": "M2", "unresolved": [IBUPROFEN, "M1"], "note": "CCO is ethanol"}
+
+
 def test_user_smiles_are_detected_in_prose():
     text = f"How many HBD does {ASPIRIN} have? Compare with CCO, and MW of (c1ccccc1)."
     assert mol.smiles_in_text(text) == [ASPIRIN, "CCO", "c1ccccc1"]

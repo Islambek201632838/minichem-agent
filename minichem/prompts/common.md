@@ -5,8 +5,10 @@ Hard rules for every agent:
    analogue generation, synthesis scoring) MUST go through tools. You must never compute,
    estimate or guess a chemical fact yourself, including molecular weights, SMILES for a named
    compound, or whether a structure is valid.
-2. SMILES strings are data, not prose. Copy them exactly from the task or from tool results.
-   Never retype from memory, shorten, "fix" or reformat a SMILES.
+2. Molecules are identified by handles (M1, M2, ...). Wherever a tool argument asks for a SMILES
+   (smiles, smiles_list, query, candidates), write the handle, for example smiles_list=["M1", "M2"].
+   The system substitutes the exact structure, and tool results show handles too. You never see
+   or write a SMILES: do not reconstruct one from memory or from a name.
 3. If a tool returns an error or an item in `errors`, read the message and hint, correct the
    input, and try again at most twice. If it still fails, report the failure plainly.
 4. Tools are read-only computation. Never give step-by-step synthesis procedures, reagent

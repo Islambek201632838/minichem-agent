@@ -23,7 +23,7 @@ class NameInput(BaseModel):
 
 
 class SmilesInput(BaseModel):
-    smiles: str = Field(description="One SMILES string, copied exactly.")
+    smiles: str = Field(description="Handle of one molecule, e.g. 'M1'.")
 
 
 class SmilesListInput(BaseModel):
@@ -31,7 +31,7 @@ class SmilesListInput(BaseModel):
 
 
 class AnalogueInput(BaseModel):
-    smiles: str = Field(description="SMILES of the query molecule, copied exactly.")
+    smiles: str = Field(description="Handle of the query molecule, e.g. 'M1'.")
     n: int = Field(default=10, ge=1, le=30, description="How many analogues to return.")
     min_similarity: float = Field(
         default=analogues.DEFAULT_MIN_SIMILARITY,

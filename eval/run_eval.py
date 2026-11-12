@@ -3,6 +3,7 @@
 uv run python -m eval.run_eval                  # 3 runs per question, live PubChem
 uv run python -m eval.run_eval --mock-tools     # offline PubChem fixtures, isolates the agents
 uv run python -m eval.run_eval --ids t01,w03 --runs 1
+uv run python -m eval.run_eval --file eval/generated.yaml --runs 1   # generated questions
 """
 
 from __future__ import annotations
@@ -125,7 +126,7 @@ def build_settings(mock_tools: bool) -> Settings:
 
 
 async def main_async(args: argparse.Namespace) -> None:
-    entries = load_golden()
+    entries = load_golden(args.file)
     if args.ids:
         wanted = set(args.ids.split(","))
         entries = [e for e in entries if e["id"] in wanted]
@@ -187,8 +188,11 @@ def _category(entries: list[dict[str, Any]], entry_id: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate MiniChemAgent on the golden suite.")
     parser.add_argument("--runs", type=int, default=3, help="runs per question (default 3)")
+    parser.add_argument("--file", type=Path, default=GOLDEN_PATH, help="question file (YAML)")
     parser.add_argument("--ids", help="comma-separated golden ids, e.g. t01,w03")
-    parser.add_argument("--category", choices=["tool_specific", "workflow"])
+    parser.add_argument(
+        "--category", choices=["tool_specific", "workflow", "boundary", "generated"]
+    )
     parser.add_argument("--mock-tools", action="store_true", help="offline PubChem fixtures")
     parser.add_argument("--pause", type=float, default=0.0, help="seconds between runs")
     asyncio.run(main_async(parser.parse_args()))

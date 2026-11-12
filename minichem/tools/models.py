@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 MAX_BATCH = 50
 SmilesList = Annotated[
     list[str],
-    Field(min_length=1, max_length=MAX_BATCH, description="SMILES strings, copied exactly."),
+    Field(
+        min_length=1,
+        max_length=MAX_BATCH,
+        description="Handles of the molecules, e.g. ['M1', 'M2'].",
+    ),
 ]
 
 

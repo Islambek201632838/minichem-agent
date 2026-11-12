@@ -10,8 +10,10 @@ ChatInvent paper; target level is a **medium-grade, local production system** (s
   Kubernetes, no managed cloud, no multi-tenant features, nothing added only to look impressive. Add
   infrastructure (auth, persistence, containers, local checks, rate limiting) when it makes the system
   more reliable, and write down why. The ordered list is `.claude/rules/production-roadmap.md`.
-- **Open or free tools only.** No commercially closed software or paid SaaS may be a dependency
-  (for example OpenEye, hosted tracing services). Prefer permissive open licences (Apache-2.0, MIT,
+- **Open or free tools only, and reuse before you write.** No commercially closed, paid or unavailable
+  software may be a dependency (for example OpenEye, hosted tracing services). If a ready open MCP server or
+  library exists for the job, use it instead of writing the same thing from scratch (check first, record the
+  licence and why a custom one was needed if it was). Prefer permissive open licences (Apache-2.0, MIT,
   BSD) and record the licence of anything new. Datasets need a licence that allows our use. The LLM
   backend is the one existing hosted service (Gemini free tier); changing it is the owner's decision.
 - **The owner must still understand every decision.** Each non-trivial choice gets its reason in
@@ -27,7 +29,7 @@ Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `READM
 (`~/.local/bin`, installed with `uv python install 3.12 --default --preview`), but still use `uv run`.
 ```bash
 uv sync                                          # install, versions pinned with == in pyproject.toml
-uv run pytest -q                                 # 126 tests, no network, no API key, ~5 s
+uv run pytest -q                                 # 134 tests, no network, no API key, ~5 s
 uv run ruff check . && uv run ruff format .      # must be clean before finishing
 uv run python -m minichem.cli -v "question"      # real Gemini + MCP + PubChem, needs .env
 uv run uvicorn app.api:app --port 8000           # API
@@ -40,7 +42,7 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
 - `minichem/agents/` `supervisor.py` (Decision, context), `base.py` (sub-agent build/run, retyping detector), one file per agent.
 - `minichem/tools/` `chem.py` pure RDKit core, `models.py` Pydantic I/O, `analogues.py`, `synthesis.py`,
   `pubchem.py`, `retrosynthesis.py` (optional, off), `registry.py` (LangChain tool wrappers).
-- `minichem/molecules.py` SMILES handles, masking, guard. `tracing.py` JSONL trace + token counts.
+- `minichem/molecules.py` SMILES handles, masking, guard. `handles.py` handle-based tool arguments (middleware). `tracing.py` JSONL trace + token counts.
 - `minichem/prompts/*.md` all prompts. `assistant.py` public entry (`open_assistant`, `ChemAssistant.ask`).
 - `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/retro_server.py` (retrosynthesis check + routes, runs in its own venv, off by default; steps are validated by `minichem/tools/route_check.py` and named by `minichem/tools/reaction_types.py`). `app/api.py`, `ui/app.py` (+ `ui/route_view.py`: route schemes from `ChatResult.routes`), `minichem/cli.py`.
 - `eval/` `golden.yaml`, `checks.py`, `run_eval.py`, `results/` (+ `archive/`). `tests/` mirrors the code.
@@ -48,7 +50,7 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
 ## Hard rules
 - **Never print or commit `.env`** (holds the Gemini key; `GEMINI_API_KEY` is accepted as alias of `GOOGLE_API_KEY`). Only `.env.example` is committed.
 - **All chemistry goes through tools.** The LLM must never compute or guess chemical facts. This rule lives in `prompts/common.md`.
-- **SMILES are data.** The supervisor must never see or write SMILES; it uses handles (`M1`). See `.claude/rules/smiles-handles.md`.
+- **SMILES are data.** Neither the supervisor nor the sub-agents see or write SMILES; they use handles (`M1`) in tasks, tool arguments and tool results, and code resolves them. See `.claude/rules/smiles-handles.md`.
 - **Safety:** tools are read-only computation. No synthesis procedures (no amounts, solvents, temperatures, work-up) and no hazardous-substance advice. The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) with a textbook reaction name and a class-level reagent hint (e.g. 'a base', 'a palladium catalyst') from a fixed table in `reaction_types.py`, never LLM-written, and never amounts, solvents or temperatures; hazardous and controlled substances are declined without tools.
 - **No invented APIs.** Check installed signatures before using a library (several things differed from memory, see gotchas).
 - **Tools never raise into the agent loop**; they return `{"error","hint"}` or per-item `errors`.

@@ -14,6 +14,7 @@ from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
 from minichem import molecules as mol
+from minichem.handles import SMILES_ARGS, HandleMiddleware, RunHandles, is_handle
 from minichem.prompts import system_prompt
 from minichem.state import AgentName, AgentReport
 
@@ -21,11 +22,10 @@ MAX_RESULT_CHARS = 1500
 
 TASK_TEMPLATE = (
     "Task: {task}\n\n"
-    "SMILES in the task above are exact; copy them character for character into tool calls."
+    "Molecules are given as handles (M1, M2, ...). Put the handle itself wherever a tool asks "
+    "for a SMILES; the system substitutes the exact structure. Tool results show handles too. "
+    "Never write a SMILES yourself."
 )
-
-
-SMILES_ARGS = frozenset({"smiles", "smiles_list", "query", "candidates"})
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,8 @@ class SubAgentRun:
 
     report: AgentReport
     registry: list[str]
-    produced: list[str]  # SMILES the tools returned, in order
-    warnings: list[str]  # tool arguments whose SMILES were not given verbatim
+    produced: list[str]  # molecules the tools returned, in order
+    warnings: list[str]  # tool arguments where the model wrote a SMILES, not a handle
 
 
 @dataclass(frozen=True)
@@ -60,14 +60,16 @@ def build_subagent(
         llm,
         tools,
         system_prompt=system_prompt(prompts, name),
+        middleware=[HandleMiddleware()],
+        context_schema=RunHandles,
         checkpointer=False,
         name=name,
     )
     return SubAgent(name=name, runnable=graph.with_config(metadata={"agent": name}))
 
 
-def _compact(payload: dict, registry: list[str]) -> str:
-    text = json.dumps(mol.with_handles(payload, registry), separators=(",", ":"))
+def _compact(payload: dict) -> str:
+    text = json.dumps(payload, separators=(",", ":"))
     return text if len(text) <= MAX_RESULT_CHARS else text[:MAX_RESULT_CHARS] + "...(truncated)"
 
 
@@ -78,27 +80,23 @@ def _final_text(messages: list[Any]) -> str:
     return ""
 
 
-def _retyped_arguments(messages: list[Any], registry: list[str], question: str) -> list[str]:
-    """SMILES passed to tools that were never given to the agent.
+def _raw_arguments(messages: list[Any], question: str) -> list[str]:
+    """Tool arguments where the model wrote a SMILES instead of a handle.
 
-    A SMILES is legitimate if it was in the registry before the run, in the user's question,
-    or returned by an earlier tool call in this run. Anything else was typed by the model.
-    The model is told to copy SMILES, but nothing in the protocol can force it to; this
-    detects the cases where it did not.
+    Handles are resolved by code (`HandleMiddleware`), so a SMILES typed by the model is a
+    protocol violation: it can be a retyped, wrong structure. The only accepted raw value is
+    one the user typed in this question, copied from the task when it had no handle yet.
     """
-    known = list(registry)
     flagged: list[str] = []
     for message in messages:
-        if isinstance(message, ToolMessage) and (payload := mol.payload_of(message)):
-            known = mol.register(known, mol.collect_smiles(payload))
-        elif isinstance(message, AIMessage):
-            for call in message.tool_calls:
-                for key in SMILES_ARGS & call["args"].keys():
-                    value = call["args"][key]
-                    for smiles in [value] if isinstance(value, str) else value:
-                        given = mol.find(known, smiles) is not None or smiles in question
-                        if not given and smiles not in flagged:
-                            flagged.append(smiles)
+        if not isinstance(message, AIMessage):
+            continue
+        for call in message.tool_calls:
+            for key in SMILES_ARGS & call["args"].keys():
+                value = call["args"][key]
+                for item in [value] if isinstance(value, str) else value:
+                    if not is_handle(item) and item not in question and item not in flagged:
+                        flagged.append(item)
     return flagged
 
 
@@ -112,13 +110,15 @@ async def run_subagent(
 ) -> SubAgentRun:
     """Run one delegated task. Molecules in the report are handles, never SMILES text;
     new SMILES enter the registry only from tool results."""
-    prompt = TASK_TEMPLATE.format(task=mol.expand_handles(task, registry))
+    prompt = TASK_TEMPLATE.format(task=task)
+    handles = RunHandles(list(registry))
     notes = ""
     messages: list[Any] = []
     try:
         result = await agent.runnable.ainvoke(
             {"messages": [HumanMessage(content=prompt)]},
             config={**config, "recursion_limit": max_iterations},
+            context=handles,
         )
         messages = result["messages"]
         notes = _final_text(messages)
@@ -126,25 +126,18 @@ async def run_subagent(
         notes = f"The {agent.name} agent stopped: it hit its iteration limit without finishing."
 
     warnings = [
-        f"{agent.name} agent passed a SMILES it was not given: {s}"
-        for s in _retyped_arguments(messages, registry, question)
+        f"{agent.name} agent passed a SMILES instead of a handle: {s}"
+        for s in _raw_arguments(messages, question)
     ]
     payloads = [
         (m.name or "tool", p)
         for m in messages
         if isinstance(m, ToolMessage) and (p := mol.payload_of(m)) is not None
     ]
-    produced: list[str] = []
-    for _, payload in payloads:
-        produced.extend(s for s in mol.collect_smiles(payload) if s not in produced)
-    registry = mol.register(registry, produced)
-
     report: AgentReport = {
         "agent": agent.name,
         "task": task,
-        "notes": mol.mask_smiles(notes, registry),
-        "tool_results": [
-            {"tool": name, "result": _compact(payload, registry)} for name, payload in payloads
-        ],
+        "notes": mol.mask_smiles(notes, handles.registry),
+        "tool_results": [{"tool": name, "result": _compact(payload)} for name, payload in payloads],
     }
-    return SubAgentRun(report, registry, produced, warnings)
+    return SubAgentRun(report, handles.registry, handles.produced, warnings)

@@ -4,7 +4,7 @@
 `intake -> supervisor <-> {utility | design | synthesis} -> finalize`.
 - `intake`: registers SMILES typed by the user (canonical form), resets per-turn state (`reports`, `warnings`, `steps`, `turn_molecules`, `answer`).
 - `supervisor`: LLM with `with_structured_output(Decision)`; `Decision{next, task, final_answer}`. Unusable output (None, FINISH without answer, delegation with empty task or no steps left) goes to `finalize` with a fallback answer built from raw tool results. Budget: `MAX_SUPERVISOR_STEPS` (6).
-- sub-agent node: `run_subagent` runs a `create_agent` loop, collects ToolMessages, registers SMILES from tool results, builds an `AgentReport` where molecules appear as ids, and detects SMILES the model passed to tools but was never given.
+- sub-agent node: `run_subagent` runs a `create_agent` loop with `HandleMiddleware` (`handles.py`): handles in tool arguments are resolved to SMILES before the tool runs and tool results are shown to the model with handles; the node reads the grown handle table (`RunHandles`) back as the new registry, builds an `AgentReport` where molecules appear as ids, and flags SMILES the model wrote into arguments instead of handles.
 - `finalize`: expands handles to backticked exact SMILES and appends a warning for SMILES in the text that are not in the registry.
 - Persistent state (MemorySaver, keyed by `session_id`): `messages`, `molecules`. Everything else is per turn. Per-request objects (the `Tracer`) travel in `RunContext` via `context=`, not in state.
 

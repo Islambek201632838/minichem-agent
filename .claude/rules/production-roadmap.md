@@ -3,7 +3,7 @@
 Target level (owner's decision, 2026-11-12): medium production, local. One machine, no cloud
 services, only open or free software, nothing built only to look impressive.
 
-Status on 2026-11-12: nothing below is implemented. The README states the scope and says which of
+Status on 2026-11-12: only item 9 is implemented; the rest is not. The README states the scope and says which of
 these are still missing; update that paragraph as items are finished. Each item names the alternative
 that was rejected. Do not start an item without the owner's go-ahead.
 
@@ -22,7 +22,7 @@ protection against a few users starting heavy searches at once.
 | 6 | Structured logs with a request id on every trace line; metrics endpoint (request count, latency, tool errors) | `logs/trace.jsonl` is per tool call, not per request, and has no rotation | Langfuse cloud: sends users' chemistry questions to a third party. Self-hosted Langfuse or OpenTelemetry: possible later, extra services to run |
 | 7 | Secrets and config: fail fast at startup if the key is missing, never log settings, the key comes from `.env` or the container's environment and is never baked into an image | Silent misconfiguration shows up as a 503 at the first user question | Baking keys into the image |
 | 8 | Hard safety filter for hazardous and controlled substances (a deterministic pre-check before any LLM call) | Today it is a prompt rule checked by one golden question (`t13`); a prompt can be talked around | More prompt text. Needs the owner to choose the list source before any code |
-| 9 | Handle-based tool arguments (tools accept `M3`, code resolves it) | Removes the one failure class the eval keeps finding: the model retyping a SMILES inside a sub-agent (2 of 69 runs in the README run, 1 of 24 in `20261112T164829Z`, question `w03`: `CCCc1...` became `CCCCc1...`) | Only detecting it, which is what exists now |
+| 9 (DONE 2026-11-12) | Handle-based tool arguments (tools accept `M3`, code resolves it) | Removes the one failure class the eval keeps finding: the model retyping a SMILES inside a sub-agent (2 of 69 runs in the README run, 1 of 24 in `20261112T164829Z`, question `w03`: `CCCc1...` became `CCCCc1...`) | Only detecting it, which is what exists now |
 
 Decision of 2026-11-12: item 9 is done first, before the infrastructure items, because it fixes a
 correctness defect that is already measured; the rest do not change answers.

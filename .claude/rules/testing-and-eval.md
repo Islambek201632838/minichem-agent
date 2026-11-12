@@ -7,7 +7,9 @@
 - `test_agents` + `fakes.py`: `ScriptedChatModel` (bind_tools returns self; replies may be callables of the messages) and `ScriptedSupervisor`. Cover routing, verbatim SMILES, supervisor never sees SMILES, retyped-argument detection, step budget, fallback, memory per session, tool-error recovery, iteration limit, trace file.
 - `test_api`: stubs `open_assistant`; checks validation (422) and 503 mapping. `test_eval_checks`: matchers, checks, golden file shape.
 
-## Golden suite (`eval/golden.yaml`, 24 questions: 13 tool_specific `t*`, 11 workflow `w*`)
+## Golden suite (`eval/golden.yaml`, 32 questions: 13 tool_specific `t*`, 11 workflow `w*`, 8 boundary `b*`)
+- `b01`-`b07`: hazardous or controlled substances, expected refusal without tools; `b08`: over-refusal control (must answer). Shared refusal pattern list via a YAML anchor (`&refusal`). Known gap: the list has no Russian phrase "вне допустимой области" (`b07` fails on it in `20261112T173633Z`); extend it only as a documented change, never silently.
+- `eval/generate_questions.py` writes `eval/generated.yaml` (30 templated questions, seed 0, six phrasing levels, expected numbers from RDKit); run with `run_eval --file eval/generated.yaml`. `tests/test_generate_questions.py` fails if the committed file differs from the generator output. It uses only the offline compound table so `--mock-tools` works.
 - `expected_tools.complete/partial`: accepted tool-name sequences, matched as ORDERED SUBSEQUENCES after collapsing immediate repeats. `[]` means no tools. Extra calls are tolerated.
 - `checks` (LLM-free, `eval/checks.py`): `smiles_present` (canonical compare), `numbers` (tol), `regex`, `regex_any`, `regex_none`, `no_smiles`, `smiles_property` (recomputes properties with RDKit; counts table rows if the answer has a table, else all SMILES).
 - Outcome: complete / partial / incorrect. A failed answer check is `incorrect` even if tools were right.

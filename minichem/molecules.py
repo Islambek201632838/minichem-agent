@@ -113,20 +113,42 @@ def collect_smiles(payload: Any) -> list[str]:
     return found
 
 
-def with_handles(payload: Any, registry: list[str]) -> Any:
-    """Copy of a tool result where every `smiles` value is replaced by its handle."""
-    if isinstance(payload, dict):
+MAX_VALUE_CHARS = 400
+
+
+def _index_of(registry: list[str]) -> dict[str, int]:
+    """Canonical SMILES -> position, built once so a payload is not re-parsed per string."""
+    index: dict[str, int] = {}
+    for i, known in enumerate(registry):
+        index.setdefault(chem.canonical(known) or known, i)
+    return index
+
+
+def _hide(node: Any, index: dict[str, int]) -> Any:
+    if isinstance(node, dict):
         out: dict[str, Any] = {}
-        for key, value in payload.items():
+        for key, value in node.items():
             if key == "smiles" and isinstance(value, str):
-                index = find(registry, value)
-                out["id"] = handle(index) if index is not None else "unregistered"
+                position = index.get(chem.canonical(value) or value)
+                out["id"] = handle(position) if position is not None else "unregistered"
             else:
-                out[key] = with_handles(value, registry)
+                out[key] = _hide(value, index)
         return out
-    if isinstance(payload, list):
-        return [with_handles(item, registry) for item in payload]
-    return payload
+    if isinstance(node, list):
+        return [_hide(item, index) for item in node]
+    if isinstance(node, str) and " " not in node and len(node) <= MAX_VALUE_CHARS:
+        position = index.get(chem.canonical(node) or "")
+        return handle(position) if position is not None else node
+    return node
+
+
+def with_handles(payload: Any, registry: list[str]) -> Any:
+    """Copy of a tool result with every registered molecule replaced by its handle.
+
+    A `smiles` key becomes `id`. Other string values (`input`, `query`, `unresolved` items)
+    are replaced when the whole value is a registered molecule, in any spelling.
+    """
+    return _hide(payload, _index_of(registry))
 
 
 def payload_of(message: ToolMessage) -> dict | None:
