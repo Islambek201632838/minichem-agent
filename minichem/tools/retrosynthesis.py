@@ -1,7 +1,9 @@
 """Optional retrosynthesis, OFF by default.
 
-`analyse` returns counts and a score; `routes` returns disconnections (product <- reactants).
-Neither predicts conditions: no temperatures, catalysts, solvents or amounts.
+`analyse` returns counts and a score; `routes` returns disconnections (product <- reactants),
+including the best partial routes when no route reaches purchasable molecules: those list the
+molecules the search could not resolve. Neither predicts conditions: no temperatures,
+catalysts, solvents or amounts.
 `MockRetrosynthesis` is used in tests. `AiZynthRetrosynthesis` needs a local
 AiZynthFinder install with downloaded models (see README); nothing is fetched here.
 It is used only by `mcp_server/retro_server.py`, which runs in AiZynthFinder's own environment.
@@ -17,7 +19,9 @@ from pydantic import BaseModel
 from minichem.tools.models import ItemError
 from minichem.tools.route_check import forward_check
 
-DEFAULT_TIME_LIMIT_S = 60
+DEFAULT_TIME_LIMIT_S = 120
+DEFAULT_ITERATION_LIMIT = 300  # AiZynthFinder's default is 100: too few for large molecules
+DEFAULT_MAX_TRANSFORMS = 12  # route depth in steps; AiZynthFinder's default is 6
 MAX_ROUTES = 3
 
 
@@ -61,15 +65,27 @@ class RouteStep(BaseModel):
 
 
 class Route(BaseModel):
-    """A route from the target (first step) down to purchasable molecules."""
+    """A route from the target (first step) down towards purchasable molecules.
 
+    If `all_in_stock` is false the route is partial: `unresolved` lists the molecules that are
+    neither purchasable nor split further by any template the model found. A chemist would have
+    to design those steps by hand.
+    """
+
+    # Summary fields come before `steps`: the supervisor sees tool results cut to a fixed
+    # length, and a long route must not push the unresolved molecules out of view.
     score: float
     all_in_stock: bool
+    n_steps: int
+    unresolved: list[str] = []
     steps: list[RouteStep]
 
 
 class RoutesResponse(BaseModel):
-    """The best routes for one molecule, empty if the search found none."""
+    """The best routes for one molecule, solved ones first; `solved` means at least one is.
+
+    Empty only if the search found no applicable template for the target at all.
+    """
 
     smiles: str
     solved: bool
@@ -99,6 +115,29 @@ def steps_from_tree(node: dict) -> list[RouteStep]:
         for child in children:
             steps.extend(steps_from_tree(child))
     return steps
+
+
+def unresolved_from_tree(node: dict) -> list[str]:
+    """SMILES of leaf molecules that are not purchasable (dead ends of a partial route)."""
+    leaves: list[str] = []
+    for reaction in node.get("children", []):
+        for child in reaction.get("children", []):
+            if child.get("children"):
+                leaves.extend(unresolved_from_tree(child))
+            elif not child["in_stock"] and child["smiles"] not in leaves:
+                leaves.append(child["smiles"])
+    return leaves
+
+
+def route_from_tree(tree: dict, solved: bool, score: float) -> Route:
+    steps = steps_from_tree(tree)
+    return Route(
+        score=round(score, 3),
+        all_in_stock=solved,
+        n_steps=len(steps),
+        unresolved=unresolved_from_tree(tree),
+        steps=steps,
+    )
 
 
 class Retrosynthesis(Protocol):
@@ -143,11 +182,16 @@ class AiZynthRetrosynthesis:
         stock: str = "zinc",
         policy: str = "uspto",
         time_limit_s: int = DEFAULT_TIME_LIMIT_S,
+        iteration_limit: int = DEFAULT_ITERATION_LIMIT,
+        max_transforms: int = DEFAULT_MAX_TRANSFORMS,
     ) -> None:
         from aizynthfinder.aizynthfinder import AiZynthFinder
 
         self._finder = AiZynthFinder(configfile=str(config_file))
-        self._finder.config.search.time_limit = time_limit_s
+        search = self._finder.config.search
+        search.time_limit = time_limit_s
+        search.iteration_limit = iteration_limit
+        search.max_transforms = max_transforms
         self._finder.stock.select(stock)
         self._finder.expansion_policy.select(policy)
 
@@ -166,18 +210,22 @@ class AiZynthRetrosynthesis:
         )
 
     def routes(self, smiles: str, max_routes: int = 2) -> RoutesResponse:
-        """Best routes by AiZynthFinder's score, each as a list of disconnections."""
+        """Best routes by AiZynthFinder's score: solved routes first, then partial ones.
+
+        Partial routes are kept (a hard target usually has none that is fully solved) but
+        routes without any step are dropped: they are just the unsolved target itself.
+        """
         self._finder.target_smiles = smiles
         self._finder.tree_search()
         self._finder.build_routes()
         collection = self._finder.routes
         found = [
-            Route(
-                score=round(float(score["state score"]), 3),
-                all_in_stock=tree.is_solved,
-                steps=steps_from_tree(tree.to_dict()),
-            )
+            route_from_tree(tree.to_dict(), tree.is_solved, float(score["state score"]))
             for tree, score in zip(collection.reaction_trees, collection.scores, strict=True)
         ]
-        solved = [r for r in found if r.all_in_stock][:max_routes]
-        return RoutesResponse(smiles=smiles, solved=bool(solved), routes=solved)
+        usable = sorted((r for r in found if r.steps), key=lambda r: not r.all_in_stock)
+        return RoutesResponse(
+            smiles=smiles,
+            solved=any(r.all_in_stock for r in usable),
+            routes=usable[:max_routes],
+        )

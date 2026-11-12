@@ -80,3 +80,14 @@ def test_tracer_counts_tokens(tmp_path):
     )
     tracer.on_llm_end(LLMResult(generations=[[ChatGeneration(message=message)]]), run_id=run_id)
     assert (tracer.llm_calls, tracer.input_tokens, tracer.output_tokens) == (1, 10, 4)
+
+
+def test_tracer_keeps_full_results_in_memory_but_not_in_the_trace_file(tmp_path):
+    path = tmp_path / "t.jsonl"
+    tracer = Tracer(path)
+    run_id = uuid4()
+    tracer.on_tool_start({"name": "big"}, "{}", run_id=run_id, metadata={"agent": "a"}, inputs={})
+    payload = {"rows": ["x" * 40] * 50}
+    tracer.on_tool_end(json.dumps(payload), run_id=run_id)
+    assert tracer.results == [("big", payload)]
+    assert len(path.read_text()) < len(json.dumps(payload))

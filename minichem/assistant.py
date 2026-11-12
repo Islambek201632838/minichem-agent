@@ -25,10 +25,12 @@ from minichem.graph import RunContext, build_graph
 from minichem.llm import build_chat_model
 from minichem.prompts import load_prompts
 from minichem.tools.pubchem import ChemLookup, OfflinePubChem, PubChemClient
+from minichem.tools.retrosynthesis import RoutesResponse
 from minichem.tracing import ToolCall, Tracer
 
 MCP_SERVER_NAME = "rdkit"
 RETRO_SERVER_NAME = "retrosynthesis"
+ROUTES_TOOL = "retrosynthesis_routes"
 RECURSION_LIMIT = 60  # outer graph: generous, the real budget is max_supervisor_steps
 
 
@@ -44,11 +46,21 @@ class ChatResult(BaseModel):
     answer: str
     molecules: list[MoleculeRef]
     tool_calls: list[ToolCall]
+    routes: list[RoutesResponse] = []  # full retrosynthesis routes, for drawing
     warnings: list[str]
     llm_calls: int
     input_tokens: int
     output_tokens: int
     latency_s: float
+
+
+def _routes_of(tracer: Tracer) -> list[RoutesResponse]:
+    """Routes returned by the retrosynthesis tool this turn (error results are skipped)."""
+    return [
+        RoutesResponse.model_validate(payload)
+        for tool, payload in tracer.results
+        if tool == ROUTES_TOOL and isinstance(payload, dict) and "routes" in payload
+    ]
 
 
 class ChemAssistant:
@@ -82,6 +94,7 @@ class ChemAssistant:
             answer=final["answer"],
             molecules=refs,
             tool_calls=tracer.tool_calls,
+            routes=_routes_of(tracer),
             warnings=final["warnings"],
             llm_calls=tracer.llm_calls,
             input_tokens=tracer.input_tokens,

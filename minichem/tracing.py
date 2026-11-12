@@ -66,6 +66,9 @@ class Tracer(BaseCallbackHandler):
         self._session_id = session_id
         self._open: dict[UUID, dict[str, Any]] = {}
         self.tool_calls: list[ToolCall] = []
+        self.results: list[
+            tuple[str, Any]
+        ] = []  # (tool, full decoded result); never written to disk
         self.llm_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
@@ -105,10 +108,13 @@ class Tracer(BaseCallbackHandler):
             "started": time.perf_counter(),
         }
 
-    def _finish_tool(self, run_id: UUID, summary: str, error: str | None) -> None:
+    def _finish_tool(
+        self, run_id: UUID, summary: str, error: str | None, payload: Any = None
+    ) -> None:
         info = self._open.pop(run_id, None)
         if info is None:
             return
+        self.results.append((info["tool"], payload))
         call = ToolCall(
             agent=info["agent"],
             tool=info["tool"],
@@ -125,7 +131,7 @@ class Tracer(BaseCallbackHandler):
         error = error_of(payload)
         if error is None and getattr(output, "status", None) == "error":
             error = str(payload)  # e.g. MCP argument-validation failures arrive as plain text
-        self._finish_tool(run_id, json.dumps(payload, default=str), error)
+        self._finish_tool(run_id, json.dumps(payload, default=str), error, payload)
 
     def on_tool_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
         self._finish_tool(run_id, "", f"{type(error).__name__}: {error}")

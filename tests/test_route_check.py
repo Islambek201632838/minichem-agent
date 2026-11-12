@@ -1,6 +1,13 @@
 """Route parsing and the forward check, using a real AiZynthFinder tree captured for aspirin."""
 
-from minichem.tools.retrosynthesis import Route, RoutesResponse, steps_from_tree
+import copy
+
+from minichem.tools.retrosynthesis import (
+    RoutesResponse,
+    route_from_tree,
+    steps_from_tree,
+    unresolved_from_tree,
+)
 from minichem.tools.route_check import forward_check
 from tests.conftest import ASPIRIN
 
@@ -80,6 +87,17 @@ def test_multi_step_trees_are_listed_target_first():
 
 
 def test_routes_response_shape():
-    route = Route(score=0.998, all_in_stock=True, steps=steps_from_tree(ASPIRIN_TREE))
+    route = route_from_tree(ASPIRIN_TREE, True, 0.998)
     response = RoutesResponse(smiles=ASPIRIN, solved=True, routes=[route])
     assert response.model_dump()["routes"][0]["steps"][0]["reactants"][0]["in_stock"]
+
+
+def test_partial_route_lists_the_molecule_with_no_purchasable_source():
+    partial = copy.deepcopy(ASPIRIN_TREE)
+    partial["children"][0]["children"][1]["in_stock"] = False
+    route = route_from_tree(partial, False, 0.6)
+    assert not route.all_in_stock
+    assert route.n_steps == 1
+    assert route.unresolved == [SALICYLIC_ACID]
+    assert unresolved_from_tree(ASPIRIN_TREE) == []
+    assert list(route.model_dump())[2:4] == ["n_steps", "unresolved"]

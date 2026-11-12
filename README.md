@@ -71,7 +71,7 @@ Other entry points:
 ```bash
 uv run uvicorn app.api:app --port 8000    # API
 uv run python -m streamlit run ui/app.py # UI (needs the API running; -m puts the project root on sys.path)
-uv run pytest                             # 106 tests, no network, no API key
+uv run pytest                             # 114 tests, no network, no API key
 uv run python -m eval.run_eval            # golden suite against the real model (3 runs per question)
 uv run python -m eval.run_eval --mock-tools --runs 1   # offline PubChem fixtures
 ```
@@ -173,7 +173,7 @@ changes, and tests assert that every agent's system prompt contains the shared s
 
 **Mock tools and scripted LLMs in tests.** Unit and agent tests need no network and no API key: PubChem
 is replaced by a fake HTTP session, the LLMs by scripted fakes. This makes routing, verbatim SMILES passing,
-step budgets, memory and error recovery deterministic and fast (106 tests in about 5 s). Real behaviour
+step budgets, memory and error recovery deterministic and fast (114 tests in about 5 s). Real behaviour
 is measured separately by the golden suite against the real model.
 
 **Errors are values.** Tools never raise into the agent loop. They return `{"error", "hint"}` or per-item
@@ -217,8 +217,11 @@ number of routes, the steps of the shortest route and the top score; `retrosynth
 returns up to 3 routes as lists of steps, each step being `product <- reactants` with `in_stock` (purchasable, ZINC),
 the template model's `policy_probability`, `template_support` (training reactions behind the template) and
 `forward_check`: the retro template is reversed with RDKit, applied to the reactants, and must reproduce the
-product. Only routes whose starting materials are all in stock are returned. The models predict no temperatures,
-catalysts, solvents or amounts, and the agent is told never to add them. Search time is capped at 60 s per molecule.
+product. Fully solved routes come first. If none exists (typical for large molecules), the best partial routes are returned
+instead, with `n_steps` and `unresolved`: the molecules that are neither purchasable nor split further by any
+template, which a chemist would have to design by hand. The search is deeper than AiZynthFinder's defaults (up to
+12 transforms, 300 iterations) and capped at 120 s per molecule. The models predict no temperatures,
+catalysts, solvents or amounts, and the agent is told never to add them.
 The adapter (`AiZynthRetrosynthesis` in `minichem/tools/retrosynthesis.py`) uses AiZynthFinder's Python interface
 (`ReactionTree.to_dict()` for the steps); `MockRetrosynthesis` serves the unit tests, and the route parsing and
 forward check are tested against a real tree captured for aspirin.
@@ -226,6 +229,12 @@ forward check are tested against a real tree captured for aspirin.
 Real answer to "Show the retrosynthesis route for aspirin" (one step, no conditions):
 `CC(=O)Oc1ccccc1C(=O)O` <- `CC(=O)OC(C)=O` + `O=C(O)c1ccccc1O`, in stock: true, policy probability 0.726,
 forward check: true.
+
+The API returns the full routes in the `routes` field of `/chat` (taken from the tool result in memory, not
+from the 300-character trace summary), and the Streamlit UI draws them (`ui/route_view.py`): the purchasable
+starting materials, then one RDKit reaction scheme per step in synthesis order (reactants, arrow, product),
+with the forward check, the template confidence and the molecule ids next to it. The scheme is a layout of the
+tool result; it adds no chemistry and shows no conditions.
 
 Setup (nothing is installed or downloaded automatically):
 
@@ -332,8 +341,11 @@ wrong molecular weight; a judge may not.
   captured tree, the search itself is not) and not covered by the golden set, because a run needs the 770 MB
   models. Its output comes from AiZynthFinder's USPTO policy and ZINC stock and says nothing about yields or
   real-world feasibility. A route can be formally solved with weak steps: for ibuprofen the four template
-  probabilities were 0.001 to 0.045, which is why they are shown with every step. Search finds no route for
-  some real drugs (sertraline, atorvastatin), so "0 routes" means "not covered by these models". The refusal for
+  probabilities were 0.001 to 0.045, which is why they are shown with every step. Checked by hand with real models
+  (not in the test suite): for atorvastatin, oseltamivir and strychnine no complete route exists, and the search
+  returns partial routes of about 9 to 14 steps with one unresolved molecule each, in 1 to 2 minutes (the search
+  is time-limited, so step counts vary between runs). Such a route is where the search got stuck, not a recipe;
+  "no route" means "not covered by these models". The refusal for
   hazardous and controlled substances is a prompt rule, checked by one golden question (`t13`), not a hard filter.
   There are no reaction conditions because the models do not predict any; adding them would need a separate
   source (an open reaction database or a condition-recommendation model). Conversation memory is in-process (`MemorySaver`), lost on restart, and
@@ -355,7 +367,7 @@ wrong molecular weight; a judge may not.
 minichem/        agents/ tools/ prompts/  config.py state.py graph.py molecules.py tracing.py assistant.py cli.py
 mcp_server/      server.py                MCP server (stdio)
 app/api.py       FastAPI backend
-ui/app.py        Streamlit UI (~130 lines)
+ui/app.py        Streamlit UI (~130 lines), ui/route_view.py draws retrosynthesis routes
 eval/            golden.yaml run_eval.py checks.py results/
-tests/           106 tests, no network
+tests/           114 tests, no network
 ```

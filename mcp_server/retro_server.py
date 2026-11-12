@@ -79,8 +79,11 @@ def retrosynthesis_routes(
 
     Each step gives the product, its reactants (with in_stock = purchasable), the template
     model's probability and a forward check that the reversed template reproduces the product.
-    It predicts no temperatures, catalysts, solvents or amounts. Use when asked for routes,
-    precursors or reactions, not just whether a route exists. Searches are slow.
+    If no route reaches purchasable molecules (solved = false), the best partial routes are
+    returned instead, with `unresolved` listing the molecules the search could not split or
+    buy: those steps would have to be designed by a chemist. It predicts no temperatures,
+    catalysts, solvents or amounts. Use when asked for routes, precursors or reactions, not
+    just whether a route exists. Searches take up to two minutes for large molecules.
     """
     if Chem.MolFromSmiles(smiles) is None:
         return ToolError(error="Invalid SMILES.", hint="Pass a SMILES taken from a tool result.")

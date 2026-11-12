@@ -12,6 +12,7 @@ from rdkit import Chem
 from rdkit.Chem import Draw
 
 from minichem.config import get_settings
+from ui.route_view import show_routes
 
 SETTINGS = get_settings()
 REQUEST_TIMEOUT_S = 180
@@ -81,7 +82,10 @@ def show_steps(tool_calls: list[dict], warnings: list[str]) -> None:
 def show_turn(index: int, entry: dict) -> None:
     with st.chat_message("assistant"):
         st.markdown(entry["answer"])
-        show_molecules(entry["molecules"])
+        if entry.get("routes"):
+            show_routes(entry["routes"], entry["molecules"])
+        else:
+            show_molecules(entry["molecules"])
         with st.expander(f"Agent steps ({len(entry['tool_calls'])} tool calls)"):
             show_steps(entry["tool_calls"], entry["warnings"])
             st.caption(f"{entry['latency_s']}s, {entry['llm_calls']} LLM calls")
