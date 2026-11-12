@@ -71,7 +71,7 @@ Other entry points:
 ```bash
 uv run uvicorn app.api:app --port 8000    # API
 uv run python -m streamlit run ui/app.py # UI (needs the API running; -m puts the project root on sys.path)
-uv run pytest                             # 100 tests, no network, no API key
+uv run pytest                             # 106 tests, no network, no API key
 uv run python -m eval.run_eval            # golden suite against the real model (3 runs per question)
 uv run python -m eval.run_eval --mock-tools --runs 1   # offline PubChem fixtures
 ```
@@ -173,7 +173,7 @@ changes, and tests assert that every agent's system prompt contains the shared s
 
 **Mock tools and scripted LLMs in tests.** Unit and agent tests need no network and no API key: PubChem
 is replaced by a fake HTTP session, the LLMs by scripted fakes. This makes routing, verbatim SMILES passing,
-step budgets, memory and error recovery deterministic and fast (100 tests in about 5 s). Real behaviour
+step budgets, memory and error recovery deterministic and fast (106 tests in about 5 s). Real behaviour
 is measured separately by the golden suite against the real model.
 
 **Errors are values.** Tools never raise into the agent loop. They return `{"error", "hint"}` or per-item
@@ -222,6 +222,10 @@ catalysts, solvents or amounts, and the agent is told never to add them. Search 
 The adapter (`AiZynthRetrosynthesis` in `minichem/tools/retrosynthesis.py`) uses AiZynthFinder's Python interface
 (`ReactionTree.to_dict()` for the steps); `MockRetrosynthesis` serves the unit tests, and the route parsing and
 forward check are tested against a real tree captured for aspirin.
+
+Real answer to "Show the retrosynthesis route for aspirin" (one step, no conditions):
+`CC(=O)Oc1ccccc1C(=O)O` <- `CC(=O)OC(C)=O` + `O=C(O)c1ccccc1O`, in stock: true, policy probability 0.726,
+forward check: true.
 
 Setup (nothing is installed or downloaded automatically):
 
@@ -323,10 +327,16 @@ wrong molecular weight; a judge may not.
   sub-agent the model copies SMILES into tool arguments and sometimes gets it wrong (2 of 69 runs here). A
   fix would be to let tools accept handles and resolve them in code.
 - Retrosynthesis works end to end (checked by hand on 2026-11-12 with the real model: the supervisor routes a
-  question about routes to the synthesis agent, which calls `retrosynthesis_check`), but it is off by default,
-  not part of the automated tests (they use a mock) and not covered by the golden set, because a run needs
-  the 770 MB models. Its numbers come from AiZynthFinder's USPTO policy and ZINC stock and say nothing about
-  yields or real-world feasibility. Conversation memory is in-process (`MemorySaver`), lost on restart, and
+  question about routes to the synthesis agent, which calls `retrosynthesis_check` or `retrosynthesis_routes`),
+  but it is off by default, not part of the automated tests (route parsing and the forward check are tested on a
+  captured tree, the search itself is not) and not covered by the golden set, because a run needs the 770 MB
+  models. Its output comes from AiZynthFinder's USPTO policy and ZINC stock and says nothing about yields or
+  real-world feasibility. A route can be formally solved with weak steps: for ibuprofen the four template
+  probabilities were 0.001 to 0.045, which is why they are shown with every step. Search finds no route for
+  some real drugs (sertraline, atorvastatin), so "0 routes" means "not covered by these models". The refusal for
+  hazardous and controlled substances is a prompt rule, checked by one golden question (`t13`), not a hard filter.
+  There are no reaction conditions because the models do not predict any; adding them would need a separate
+  source (an open reaction database or a condition-recommendation model). Conversation memory is in-process (`MemorySaver`), lost on restart, and
   the full history is not summarised. The suite and the model are small, see above.
 
 ## Future work
@@ -347,5 +357,5 @@ mcp_server/      server.py                MCP server (stdio)
 app/api.py       FastAPI backend
 ui/app.py        Streamlit UI (~130 lines)
 eval/            golden.yaml run_eval.py checks.py results/
-tests/           100 tests, no network
+tests/           106 tests, no network
 ```
