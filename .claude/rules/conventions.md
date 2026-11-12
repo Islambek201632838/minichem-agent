@@ -15,4 +15,4 @@
 New module in `agents/` using `build_subagent`, add the name to `AGENT_NAMES` in `state.py`, a prompt file in `prompts/` and `PROMPT_NAMES`, wire it in `assistant.open_assistant`, update the supervisor prompt, extend `tests/test_agents.py`.
 
 ## Do not commit
-`.env`, `logs/`, `.cache/` (see `.gitignore`). The repo is not a git repository yet.
+`.env`, `logs/`, `.cache/` (see `.gitignore`). Remote: private repo Islambek201632838/minichem-agent (branch main). Commits use the GitHub noreply email; never put the token in the remote URL, pass it per command with `git -c http.extraheader`.
