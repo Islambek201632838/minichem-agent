@@ -12,7 +12,7 @@ place where the synthesis agent names solvents or reagents; `prompts/common.md` 
 |---|---|---|
 | MolecularAI/precedent_finder (code) + Zenodo 15798247 (data) | Apache-2.0 code; data CC BY 4.0, 1 803 445 reactions, 661 MB; authors: example code, not maintained. Method = reaction-type filter, fingerprint similarity, Pareto over similarity, yield, year | USED as the method and the data. Not as a subprocess: its CLI loads the data on every call and its similarity loops over rows in Python; `precedent_rank.py` is a sparse-matrix rewrite with the same formulas, checked against the original (same similarities, same top results up to ties) |
 | An open MCP server for reaction precedents | A web search for MCP servers found only USPTO patent-document servers (full text, metadata; some need an API key). None searches reactions | Nothing to reuse |
-| Open Reaction Database (ord-data) | Code Apache-2.0, data CC BY-SA 4.0 (share-alike), Zenodo snapshot 1.1 GB, a few million reactions; has no ready similarity search, so we would build the index, fingerprints and ranking ourselves. Its USPTO part is the same Lowe extraction | Rejected as first source (more work, share-alike licence, no gain); possible second source later |
+| Open Reaction Database (ord-data) | Code Apache-2.0, data CC BY-SA 4.0 (share-alike), Zenodo snapshot 1.1 GB, a few million reactions; has no ready similarity search, so we would build the index, fingerprints and ranking ourselves. Its USPTO part is the same Lowe extraction | Rejected as first source (more work, share-alike licence, no gain); possible second source later. Evaluated on 2026-11-12, see the last section: not recommended for now |
 | Lowe's USPTO dataset directly | Same origin as the PrecedentFinder data, but unmapped and without the cleaning, fingerprints and reaction-type tags | Rejected: PrecedentFinder's data is that dataset after the work we would repeat |
 | rxnmapper (atom mapping of the query step) | MIT, bundled model (3 MB), pip install; needs `setuptools<81` (it imports `pkg_resources`, removed in newer setuptools); same mapper that built the database, so the query is mapped the same way | USED. Rejected alternative: use AiZynthFinder's own atom map (not available inside the precedent server, and the agent cannot pass long mapped SMILES around) |
 | `reaction_utils` (rxnutils) 1.9.4 | Apache-2.0, works on Python 3.12; gives `ChemicalReaction`, fingerprints, the SMARTS library for reaction types | USED |
@@ -64,3 +64,92 @@ There is no temperature, time or amount anywhere in the data.
   model proposed acetic acid plus a nitrile giving the acid), the precedents are for what rxnmapper
   makes of it.
 - Memory: about 3.5 GB resident when loaded (measured), 8-10 s to load, searches 0.01-1.4 s.
+
+## Evaluation of the Open Reaction Database as a second source (2026-11-12, owner: check, do not connect)
+
+Nothing was added to the project. Method: GitHub and Hugging Face APIs, parquet footers read with HTTP
+range requests (names and row counts of all 94 files, nothing else downloaded for that), plus two
+small samples downloaded into a scratchpad (`uspto-grants-1976`, `uspto-grants-1990`, 23.8 MB, and the
+750-reaction AstraZeneca ELN set, 0.3 MB), parsed with `ord-schema` and compared with the local
+PrecedentFinder table. The 1976 and 1990 numbers are measured; everything about other years is not.
+
+**What `ord-data` is now.** Git LFS repository (the LFS objects are served from the Hugging Face mirror
+`open-reaction-database/ord-data`, which is why the README no longer mentions the Zenodo snapshot of
+1.1 GB written above): 94 parquet files, 1.29 GB, 2 429 275 reactions, one protobuf `Reaction` per row,
+read with `ord-schema` 0.9.6 (Apache-2.0; needs numpy, pandas, pyarrow, rdkit, protobuf<6). Parts:
+41 files `uspto-grants-YYYY` (1976-2016): 1 771 032 reactions, 1.14 GB; 3 files (409 035 + 40 000 +
+30 000 reactions, 125 MB) of reaction SMILES "downloaded from rexgen_direct" (Coley's USPTO training
+set, so also patent-derived, no conditions); 50 other files, about 179 000 reactions, about 22 MB, mostly
+high-throughput experiments (HTE).
+
+**(a) Licence, from the official files.** Data under `data/`: CC BY-SA 4.0 (`LICENSE`, `CITATION.cff`,
+GitHub API `cc-by-sa-4.0`); scripts: Apache-2.0. Attribution (3a) means: cite ORD (Kearnes et al., JACS
+2021, 143, 18820, doi 10.1021/jacs.1c09820) and the source of a dataset. ShareAlike (3b) applies only
+"if You Share Adapted Material", and "Share" means to provide material to the public. So a private
+local index (fingerprints, mapped copies) built from it carries no obligation as long as it is not
+published: it must stay out of git, the Docker image and the README. If it were ever shared, the shared
+part would have to be CC BY-SA 4.0 too. This is a reading of the licence text, not legal advice. For
+comparison PrecedentFinder's data is CC BY 4.0 (no share-alike) and Lowe's original extraction is CC0
+(NextMove and the figshare record; the licence field itself was not read).
+
+**(c) Overlap with the patent table we already use: ORD contains it, we are not missing a source.**
+Measured: 1976, PrecedentFinder 2 914 reactions against ORD 17 855; 983 of PrecedentFinder's 987
+patents are in ORD; of 3 000 random ORD reactions (reactants > product, atom maps removed, canonical)
+495 (16.5 %) are in PrecedentFinder, which equals the 16.3 % ratio of the two tables. 1990: 7 986
+against 18 641, 1 573 of 1 578 patents, 1 283 of 3 000 sampled (42.8 %, ratio 42.8 %). So
+PrecedentFinder's grant rows are a filtered subset of ORD's grant rows (ORD keeps 2 to 6 times more
+rows in those years; whether the extra rows are usable was not checked). The opposite direction: 964 034
+of PrecedentFinder's 1 803 445 rows have application numbers (`US2005...A1`); ORD has no applications
+("uspto-grants" only). Per year the tables cross over (2005: PrecedentFinder 63 759, ORD 36 478). The
+agent C remark "the patent part of ORD is the same as ours" is therefore right for grants and wrong
+about the whole table. Not verified: years other than 1976 and 1990.
+
+**(b) What ORD would add.** Only the non-patent part, about 179 000 reactions, and it is narrow: the
+largest sets are 50 688 C-N couplings (2 amines x 4 aryl halides, per its description), 47 015 amide
+couplings (632 product pairs under 95 conditions), 39 347 Pfizer HTE, 9 632 Chan-Lam, 5 760 and 984
+Suzuki/Buchwald screens, 750 AstraZeneca ELN Buchwald reactions. Many conditions for few substrates:
+useful to say which catalyst, ligand, base and solvent gave which yield for a similar coupling, weak for
+a step with unusual substrates (expected from the descriptions, NOT measured on our route steps). These
+files have no atom maps and no reaction-type tags, so our method (rxnmapper, then the SMARTS library)
+would have to be run on them. There is no ready search: `ord-data` has none, and `ord-interface`
+(Apache-2.0; Postgres with the RDKit cartridge + Valkey + a React front end, Docker optional) was
+archived by its owner (GitHub API `archived: true`, last push 2026-10-06), so it is not a basis. What
+we would write is a loader that turns ORD rows into the columns `precedent_search.py` reads. Cost
+(estimates, not measured): download of the HTE files alone about 22 MB, all of ORD about 1.3 GB (our
+Hugging Face download of 12.7 MB took about two minutes), about +10 % rows in the 3.5 GB resident
+index, rxnmapper over 179 000 reactions is the unknown part (hours at most, not tested).
+
+**Quality is not better than ours.** The USPTO rows are the same text mining (`is_mined`), with the same
+errors. In the 1976 sample the first reaction lists triethylamine as `SOLVENT` and gives amounts as
+`moles 0.0` placeholders. A yield (`percentage`) exists for 950 of 5 000 sampled 1976 reactions (19 %)
+and for 2 475 of 5 000 in 1990 (50 %), while PrecedentFinder has a yield for every row. What ORD has
+that PrecedentFinder lacks: a `reaction_role` per component (REACTANT, REAGENT, SOLVENT, CATALYST,
+WORKUP), so reagent and solvent could be told apart (see Honest limits), but the role is whatever the
+extraction wrote and was wrong in the one reaction read in detail.
+
+**(d) Conflict with the safety rule, measured on the samples.** The patent rows carry what the project
+forbids to show: a verbatim `notes.procedure_details` paragraph in 5 000 of 5 000 sampled reactions in
+both years (amounts, temperatures, times, work-up), `conditions.temperature.setpoint` in 471 of 5 000
+(1976) and 787 of 5 000 (1990), `outcomes.reaction_time` in 1 538 and 2 247, component amounts (mass,
+moles, volume) in most, and structured `workups` (4 046 and 4 570 of 5 000). The AstraZeneca ELN rows (the only HTE set
+read) carry a temperature in 750 of 750 and moles in every component; the other HTE sets were not read. Nothing of this exists in the
+PrecedentFinder table, which is why variant B was possible without touching the rule.
+
+Options, none decided:
+1. **Do not connect ORD (recommended).** PrecedentFinder already holds the useful patent rows, with the
+   share-alike licence and the loader cost avoided; ORD's extra grant rows have the same text-mining
+   quality and its roles are unreliable; the parts that are truly new (HTE) are narrow. Revisit if the
+   golden or manual questions show couplings (Suzuki, Buchwald, amide) with no precedent found.
+2. **Add only the HTE sets, reduced at load time** to product, reactants, catalyst/ligand/base/solvent
+   names, yield and the dataset citation; temperature, time and amounts dropped when the index is built,
+   never stored or shown. This keeps the letter of the "no amounts, temperatures, times" part but breaks
+   the sentence "solvents and reagents only from a US patent record", so it needs the owner to widen the
+   rule in CLAUDE.md, `prompts/common.md`, `synthesis.md`, `supervisor.md` and here (new label, for
+   example "from a published HTE dataset, not verified"), plus the work above and a CC BY-SA review of
+   the stored index. Only choose it if option 1 shows a real gap.
+3. **Use ORD with conditions** (temperature, time, amounts, procedure text). Not recommended: it is the
+   thing the safety rule exists to prevent, and a verbatim patent procedure would be a synthesis
+   procedure whatever the label says.
+
+Sample files are in the session scratchpad, not in the project; no dependency, setting or prompt was
+changed.
