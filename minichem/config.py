@@ -43,6 +43,7 @@ class Settings(BaseSettings):
 
     enable_retrosynthesis: bool = False
     aizynth_config: Path | None = None
+    aizynth_python: Path | None = None
 
     def require_api_key(self) -> str:
         """Return the Gemini key or fail with an actionable message."""

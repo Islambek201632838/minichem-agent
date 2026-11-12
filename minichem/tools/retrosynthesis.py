@@ -3,6 +3,7 @@
 The interface returns only counts and a score: no reagents, conditions or step lists.
 `MockRetrosynthesis` is used in tests. `AiZynthRetrosynthesis` needs a local
 AiZynthFinder install with downloaded models (see README); nothing is fetched here.
+It is used only by `mcp_server/retro_server.py`, which runs in AiZynthFinder's own environment.
 """
 
 from __future__ import annotations
@@ -11,6 +12,10 @@ from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
+
+from minichem.tools.models import ItemError
+
+DEFAULT_TIME_LIMIT_S = 60
 
 
 class RetroResult(BaseModel):
@@ -21,6 +26,13 @@ class RetroResult(BaseModel):
     n_routes: int
     n_steps_shortest: int | None = None
     top_score: float | None = None
+
+
+class RetroResponse(BaseModel):
+    """Batch result: one summary per molecule that could be searched, errors for the rest."""
+
+    results: list[RetroResult]
+    errors: list[ItemError] = []
 
 
 class Retrosynthesis(Protocol):
@@ -59,10 +71,17 @@ class AiZynthRetrosynthesis:
     The statistics keys are read with `.get` so a missing key degrades to a default.
     """
 
-    def __init__(self, config_file: Path, stock: str = "zinc", policy: str = "uspto") -> None:
+    def __init__(
+        self,
+        config_file: Path,
+        stock: str = "zinc",
+        policy: str = "uspto",
+        time_limit_s: int = DEFAULT_TIME_LIMIT_S,
+    ) -> None:
         from aizynthfinder.aizynthfinder import AiZynthFinder
 
         self._finder = AiZynthFinder(configfile=str(config_file))
+        self._finder.config.search.time_limit = time_limit_s
         self._finder.stock.select(stock)
         self._finder.expansion_policy.select(policy)
 

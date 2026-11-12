@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 from minichem.tools import analogues, chem, synthesis
 from minichem.tools.models import Constraints, SmilesList, ToolError
 from minichem.tools.pubchem import ChemLookup
-from minichem.tools.retrosynthesis import Retrosynthesis
 
 
 class NameInput(BaseModel):
@@ -125,9 +124,9 @@ def design_local_tools() -> list[BaseTool]:
     ]
 
 
-def synthesis_tools(retro: Retrosynthesis | None = None) -> list[BaseTool]:
-    """SA score, structural flags and, if configured, a retrosynthesis summary."""
-    tools = [
+def synthesis_tools() -> list[BaseTool]:
+    """SA score and structural flags (retrosynthesis comes via its own MCP server, if enabled)."""
+    return [
         _tool(
             lambda smiles_list: synthesis.sa_scores(smiles_list),
             "sa_score",
@@ -143,13 +142,3 @@ def synthesis_tools(retro: Retrosynthesis | None = None) -> list[BaseTool]:
             SmilesListInput,
         ),
     ]
-    if retro is not None:
-        tools.append(
-            _tool(
-                lambda smiles: retro.analyse(smiles),
-                "retrosynthesis_check",
-                "Summarise whether a retrosynthesis search finds routes (counts and score only).",
-                SmilesInput,
-            )
-        )
-    return tools

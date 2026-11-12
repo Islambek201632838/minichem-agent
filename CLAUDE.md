@@ -12,11 +12,11 @@ Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `READM
 (`~/.local/bin`, installed with `uv python install 3.12 --default --preview`), but still use `uv run`.
 ```bash
 uv sync                                          # install, versions pinned with == in pyproject.toml
-uv run pytest -q                                 # 97 tests, no network, no API key, ~5 s
+uv run pytest -q                                 # 100 tests, no network, no API key, ~5 s
 uv run ruff check . && uv run ruff format .      # must be clean before finishing
 uv run python -m minichem.cli -v "question"      # real Gemini + MCP + PubChem, needs .env
 uv run uvicorn app.api:app --port 8000           # API
-uv run streamlit run ui/app.py                   # UI (API must be running)
+uv run python -m streamlit run ui/app.py        # UI (API must be running; -m puts the project root on sys.path)
 uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # real model, ~6 min for all
 ```
 
@@ -27,7 +27,7 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
   `pubchem.py`, `retrosynthesis.py` (optional, off), `registry.py` (LangChain tool wrappers).
 - `minichem/molecules.py` SMILES handles, masking, guard. `tracing.py` JSONL trace + token counts.
 - `minichem/prompts/*.md` all prompts. `assistant.py` public entry (`open_assistant`, `ChemAssistant.ask`).
-- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity). `app/api.py`, `ui/app.py`, `minichem/cli.py`.
+- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/retro_server.py` (retrosynthesis, runs in its own venv, off by default). `app/api.py`, `ui/app.py`, `minichem/cli.py`.
 - `eval/` `golden.yaml`, `checks.py`, `run_eval.py`, `results/` (+ `archive/`). `tests/` mirrors the code.
 
 ## Hard rules

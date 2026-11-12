@@ -46,7 +46,7 @@ flowchart TD
     D -->|MCP over stdio| M[mcp_server: properties, validation, similarity]
     D --> A[Analogue generator + property filter]
     Y --> SA[SA score + structural flags]
-    Y -.off by default.-> R[Retrosynthesis interface: Mock or AiZynthFinder]
+    Y -.off by default, MCP over stdio.-> R[retro_server in its own venv: AiZynthFinder]
 
     G -.-> T[(logs/trace.jsonl)]
 ```
@@ -70,8 +70,8 @@ Other entry points:
 
 ```bash
 uv run uvicorn app.api:app --port 8000    # API
-uv run streamlit run ui/app.py            # UI (needs the API running)
-uv run pytest                             # 97 tests, no network, no API key
+uv run python -m streamlit run ui/app.py # UI (needs the API running; -m puts the project root on sys.path)
+uv run pytest                             # 100 tests, no network, no API key
 uv run python -m eval.run_eval            # golden suite against the real model (3 runs per question)
 uv run python -m eval.run_eval --mock-tools --runs 1   # offline PubChem fixtures
 ```
@@ -173,7 +173,7 @@ changes, and tests assert that every agent's system prompt contains the shared s
 
 **Mock tools and scripted LLMs in tests.** Unit and agent tests need no network and no API key: PubChem
 is replaced by a fake HTTP session, the LLMs by scripted fakes. This makes routing, verbatim SMILES passing,
-step budgets, memory and error recovery deterministic and fast (97 tests in about 5 s). Real behaviour
+step budgets, memory and error recovery deterministic and fast (100 tests in about 5 s). Real behaviour
 is measured separately by the golden suite against the real model.
 
 **Errors are values.** Tools never raise into the agent loop. They return `{"error", "hint"}` or per-item
@@ -196,7 +196,7 @@ it would not be offline-safe in a few lines.
 |---|---|---|
 | utility | `name_to_smiles`, `smiles_to_name`, `canonicalize_smiles` | PubChem PUG REST (timeout, error objects, JSON disk cache), RDKit |
 | design | `calculate_properties`, `validate_smiles`, `tanimoto_similarity` (MCP); `generate_analogues`, `filter_molecules` (local) | RDKit |
-| synthesis | `sa_score`, `structural_flags`; `retrosynthesis_check` only if enabled | RDKit Contrib `sascorer`, Brenk filter catalog |
+| synthesis | `sa_score`, `structural_flags`; `retrosynthesis_check` (MCP, only if enabled) | RDKit Contrib `sascorer`, Brenk filter catalog, AiZynthFinder |
 
 Properties: MW, Crippen logP, HBD, HBA (RDKit definitions), rotatable bonds, TPSA, QED. Similarity is
 Tanimoto on Morgan fingerprints (radius 2, 2048 bits).
@@ -208,20 +208,31 @@ candidates above a Tanimoto floor (default 0.4) that satisfy the user's constrai
 by similarity. It is deterministic and honest about what it is. It does not learn, optimise a property, or
 explore chemical space beyond local edits, and some outputs are chemically odd (for example thioacids).
 
-**Retrosynthesis (optional, off by default).** `minichem/tools/retrosynthesis.py` defines a
-`Retrosynthesis` protocol that returns only counts and a score (no reagents or conditions), a
-`MockRetrosynthesis` used in tests, and an `AiZynthRetrosynthesis` adapter. Nothing is downloaded or
-installed automatically. AiZynthFinder (<https://molecularai.github.io/aizynthfinder/>) cannot share this
-project's environment: version 4.4.1 requires `rdkit<2024` and `numpy<2`, while this project pins a newer
-RDKit. It has to live in its own virtualenv (Python 3.10-3.12, plus `pyarrow==17.0.0` to stay compatible with
-NumPy 1), with models fetched by its `download_public_data` command (about 770 MB). The adapter uses only
-the calls shown in AiZynthFinder's Python interface documentation (`AiZynthFinder(configfile=...)`,
-`stock.select`, `expansion_policy.select`, `target_smiles`, `tree_search`, `build_routes`,
-`extract_statistics`). I ran it once by hand against the public USPTO models and ZINC stock in such a
-separate environment: it returned results and the statistics keys it reads (`is_solved`,
-`number_of_solved_routes`, `number_of_steps`, `top_score`) were present. This is a smoke test only; it is
-not in the test suite and the agent does not call it, because the two environments cannot be imported
-together. Wiring it in would need a separate process (for example a second MCP server).
+**Retrosynthesis (optional, off by default).** AiZynthFinder (<https://molecularai.github.io/aizynthfinder/>)
+cannot share this project's environment: version 4.4.1 requires `rdkit<2024` and `numpy<2`, while this project
+pins a newer RDKit. So it runs as a second MCP server, `mcp_server/retro_server.py`, started with the Python of
+its own virtualenv. The agent talks to it over stdio exactly like the RDKit server, which keeps the two RDKit
+versions in separate processes. The tool `retrosynthesis_check` takes up to 5 SMILES and returns only
+`solved`, the number of routes, the steps of the shortest route and the top route score: no reagents,
+conditions or step lists. Search time is capped at 60 s per molecule. The adapter
+(`AiZynthRetrosynthesis` in `minichem/tools/retrosynthesis.py`) uses only the calls shown in AiZynthFinder's
+Python interface documentation; `MockRetrosynthesis` serves the unit tests.
+
+Setup (nothing is installed or downloaded automatically):
+
+```bash
+uv venv --python 3.12 ~/tools/aizynth/.venv
+uv pip install --python ~/tools/aizynth/.venv/bin/python aizynthfinder==4.4.1 pyarrow==17.0.0 mcp==1.30.0
+~/tools/aizynth/.venv/bin/download_public_data ~/tools/aizynth/data   # about 770 MB
+# in .env:
+# ENABLE_RETROSYNTHESIS=true
+# AIZYNTH_CONFIG=~/tools/aizynth/data/config.yml
+# AIZYNTH_PYTHON=~/tools/aizynth/.venv/bin/python
+```
+
+`pyarrow==17.0.0` is needed because the latest pyarrow is built for NumPy 2. The downloader does not check
+file sizes: one run silently stopped at 39% of `uspto_model.onnx` (ONNX then fails with `INVALID_PROTOBUF`),
+so compare the file sizes with the Zenodo records or resume the file with `curl -C -`.
 
 **Safety.** All tools are read-only computation. The shared prompt forbids synthesis procedures,
 reagent amounts and advice about hazardous or controlled substances, and the synthesis agent only reports
@@ -231,7 +242,7 @@ guarantee.
 
 ## Evaluation
 
-**Method.** `eval/golden.yaml` has 23 questions in the paper's two categories: 12 tool-specific and
+**Method.** `eval/golden.yaml` has 24 questions in the paper's two categories: 13 tool-specific and
 11 multi-step workflows (one is a two-turn conversation that tests memory). Each question lists accepted
 tool-name sequences, `complete` and `partial`, matched as ordered subsequences of the observed calls
 (immediate repeats collapsed; extra calls are tolerated). Each also has exact answer checks that do not
@@ -258,6 +269,16 @@ so it is dominated by the LLM calls, not by PubChem. Tool-call errors are mostly
 (an unknown compound) produces one error per lookup by design (3 live, 6 offline). The remaining live error
 and 2 more offline errors are in `w11`, described next.
 
+After the supervisor prompt gained one sentence about routing route questions to the synthesis agent (retrosynthesis
+enabled by hand, off in this run), I ran the suite once more with one run per question
+(`eval/results/20261112T150937Z.json`): 23/23 complete, 1 tool-call error (`t11`, by design), 0 unverified-SMILES
+warnings, 5.2 s average latency, 6,012 tokens per run. Then I added a refusal rule for hazardous and controlled
+substances to the prompts and a question for it (`t13`, which asks how easy a controlled substance is to make);
+the first run of the 24-question suite (`eval/results/20261112T151741Z.json`, one run per question) gave 24/24
+complete, 2 tool-call errors (`t11`, by design), 0 unverified-SMILES warnings, 4.9 s average latency, 6,430 tokens
+per run. `t13` was written before its first run and one run per question is thin evidence. The tables above still
+describe the three-run result of the 23-question suite.
+
 **What the run found.** The unverified-SMILES detector fired twice (2 of 69 runs, 3%): in `w09` a synthesis
 agent computed a score for a butyl analogue (`CCCCc1ccc(C(C)C(=O)O)cc1`) that the generator never produced, and
 in `w11` a design agent re-typed a list of ten analogues and corrupted one SMILES, which the tool rejected as
@@ -279,7 +300,7 @@ complete, because the final answers were correct; the warnings are reported sepa
   suite says little about rare failures.
 - Free-tier limits did not stop any run (no crashed runs), but I did not measure quota headroom.
 
-**No LLM-as-judge.** All 23 questions have exact checks, so I did not add a judge. A judge would add cost and
+**No LLM-as-judge.** All 24 questions have exact checks, so I did not add a judge. A judge would add cost and
 noise: it tends to favour fluent answers over correct ones, cannot verify numbers or SMILES without tools, is
 non-deterministic, and can be fooled by an answer that repeats the question's wording. Exact checks catch a
 wrong molecular weight; a judge may not.
@@ -296,15 +317,17 @@ wrong molecular weight; a judge may not.
 - **Verbatim SMILES is partly detected, not guaranteed.** Between agents it is enforced by the registry. Inside a
   sub-agent the model copies SMILES into tool arguments and sometimes gets it wrong (2 of 69 runs here). A
   fix would be to let tools accept handles and resolve them in code.
-- Retrosynthesis adapter was only smoke-tested by hand in a separate environment and is not connected to the
-  agent (RDKit version conflict). Conversation memory is in-process (`MemorySaver`), lost on restart, and
+- Retrosynthesis works end to end (checked by hand on 2026-11-12 with the real model: the supervisor routes a
+  question about routes to the synthesis agent, which calls `retrosynthesis_check`), but it is off by default,
+  not part of the automated tests (they use a mock) and not covered by the golden set, because a run needs
+  the 770 MB models. Its numbers come from AiZynthFinder's USPTO policy and ZINC stock and say nothing about
+  yields or real-world feasibility. Conversation memory is in-process (`MemorySaver`), lost on restart, and
   the full history is not summarised. The suite and the model are small, see above.
 
 ## Future work
 
 - A real generative model (REINVENT) behind the same `generate_analogues` interface.
-- AiZynthFinder routes via the existing `Retrosynthesis` interface, run as a separate process with its own
-  environment and covered by an automated test against a real install.
+- Golden questions and an automated test for retrosynthesis against a real AiZynthFinder install.
 - Handle-based tool arguments, so SMILES never pass through the model at all.
 - A2A so separately deployed agents can call each other; more MCP servers for other teams.
 - Long-conversation memory (summarisation, persistent checkpointer such as SQLite or Postgres).
@@ -319,5 +342,5 @@ mcp_server/      server.py                MCP server (stdio)
 app/api.py       FastAPI backend
 ui/app.py        Streamlit UI (~130 lines)
 eval/            golden.yaml run_eval.py checks.py results/
-tests/           97 tests, no network
+tests/           100 tests, no network
 ```

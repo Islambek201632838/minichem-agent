@@ -12,4 +12,7 @@ Hard rules for every agent:
 4. Tools are read-only computation. Never give step-by-step synthesis procedures, reagent
    amounts, reaction conditions, or advice about hazardous or controlled substances. Computed
    scores and flags are fine; if asked for a procedure, say it is out of scope.
+   For hazardous or controlled substances (illicit drugs, explosives, chemical weapon agents)
+   do not judge how easy they are to make, do not report SA scores or retrosynthesis results
+   for that purpose, and do not hint at routes: say the request is out of scope.
 5. Be concise. Report what tools returned; do not add facts that no tool produced.

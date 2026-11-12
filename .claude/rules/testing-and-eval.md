@@ -7,7 +7,7 @@
 - `test_agents` + `fakes.py`: `ScriptedChatModel` (bind_tools returns self; replies may be callables of the messages) and `ScriptedSupervisor`. Cover routing, verbatim SMILES, supervisor never sees SMILES, retyped-argument detection, step budget, fallback, memory per session, tool-error recovery, iteration limit, trace file.
 - `test_api`: stubs `open_assistant`; checks validation (422) and 503 mapping. `test_eval_checks`: matchers, checks, golden file shape.
 
-## Golden suite (`eval/golden.yaml`, 23 questions: 12 tool_specific `t*`, 11 workflow `w*`)
+## Golden suite (`eval/golden.yaml`, 24 questions: 13 tool_specific `t*`, 11 workflow `w*`)
 - `expected_tools.complete/partial`: accepted tool-name sequences, matched as ORDERED SUBSEQUENCES after collapsing immediate repeats. `[]` means no tools. Extra calls are tolerated.
 - `checks` (LLM-free, `eval/checks.py`): `smiles_present` (canonical compare), `numbers` (tol), `regex`, `regex_any`, `regex_none`, `no_smiles`, `smiles_property` (recomputes properties with RDKit; counts table rows if the answer has a table, else all SMILES).
 - Outcome: complete / partial / incorrect. A failed answer check is `incorrect` even if tools were right.

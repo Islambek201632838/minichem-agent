@@ -5,9 +5,10 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from langchain_core.messages import HumanMessage
+from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.memory import MemorySaver
@@ -24,10 +25,10 @@ from minichem.graph import RunContext, build_graph
 from minichem.llm import build_chat_model
 from minichem.prompts import load_prompts
 from minichem.tools.pubchem import ChemLookup, OfflinePubChem, PubChemClient
-from minichem.tools.retrosynthesis import AiZynthRetrosynthesis, Retrosynthesis
 from minichem.tracing import ToolCall, Tracer
 
 MCP_SERVER_NAME = "rdkit"
+RETRO_SERVER_NAME = "retrosynthesis"
 RECURSION_LIMIT = 60  # outer graph: generous, the real budget is max_supervisor_steps
 
 
@@ -95,39 +96,54 @@ def _build_lookup(settings: Settings) -> ChemLookup:
     return PubChemClient(settings.pubchem_cache_path, settings.pubchem_timeout_s)
 
 
-def _build_retrosynthesis(settings: Settings) -> Retrosynthesis | None:
-    if not settings.enable_retrosynthesis:
-        return None
-    if settings.aizynth_config is None:
-        raise RuntimeError("ENABLE_RETROSYNTHESIS is set but AIZYNTH_CONFIG is not.")
-    return AiZynthRetrosynthesis(settings.aizynth_config)
+def _retro_server_config(settings: Settings) -> dict:
+    """Stdio config for the retrosynthesis server, which runs in AiZynthFinder's own venv."""
+    if settings.aizynth_config is None or settings.aizynth_python is None:
+        raise RuntimeError(
+            "ENABLE_RETROSYNTHESIS needs AIZYNTH_CONFIG and AIZYNTH_PYTHON (see README)."
+        )
+    return {
+        "transport": "stdio",
+        "command": str(settings.aizynth_python),
+        "args": ["-m", "mcp_server.retro_server"],
+        "cwd": str(PROJECT_ROOT),
+        "env": {"AIZYNTH_CONFIG": str(settings.aizynth_config), "PYTHONPATH": str(PROJECT_ROOT)},
+    }
 
 
 @asynccontextmanager
 async def open_assistant(settings: Settings | None = None) -> AsyncIterator[ChemAssistant]:
     """Start the MCP server (stdio), build the agents and graph, and yield the assistant.
 
-    One persistent MCP session is reused for every tool call (no process spawn per call).
+    One persistent MCP session per server is reused for every tool call (no process spawn per
+    call). The retrosynthesis server is started only when ENABLE_RETROSYNTHESIS is set.
     """
     settings = settings or get_settings()
     prompts = load_prompts()
     llm = build_chat_model(settings)
-    client = MultiServerMCPClient(
-        {
-            MCP_SERVER_NAME: {
-                "transport": "stdio",
-                "command": sys.executable,
-                "args": ["-m", "mcp_server.server"],
-                "cwd": str(PROJECT_ROOT),
-            }
+    servers = {
+        MCP_SERVER_NAME: {
+            "transport": "stdio",
+            "command": sys.executable,
+            "args": ["-m", "mcp_server.server"],
+            "cwd": str(PROJECT_ROOT),
         }
-    )
-    async with client.session(MCP_SERVER_NAME) as session:
-        mcp_tools = await load_mcp_tools(session)
+    }
+    if settings.enable_retrosynthesis:
+        servers[RETRO_SERVER_NAME] = _retro_server_config(settings)
+    client = MultiServerMCPClient(servers)
+    async with AsyncExitStack() as stack:
+        mcp_tools = await load_mcp_tools(
+            await stack.enter_async_context(client.session(MCP_SERVER_NAME))
+        )
+        retro_tools: list[BaseTool] = []
+        if settings.enable_retrosynthesis:
+            retro_session = await stack.enter_async_context(client.session(RETRO_SERVER_NAME))
+            retro_tools = await load_mcp_tools(retro_session)
         agents: dict[str, SubAgent] = {
             "utility": build_utility_agent(llm, prompts, _build_lookup(settings)),
             "design": build_design_agent(llm, prompts, mcp_tools),
-            "synthesis": build_synthesis_agent(llm, prompts, _build_retrosynthesis(settings)),
+            "synthesis": build_synthesis_agent(llm, prompts, retro_tools),
         }
         supervisor_llm = llm.with_structured_output(Decision).with_config(
             metadata={"agent": "supervisor"}

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from langchain_core.language_models import BaseChatModel
+from langchain_core.tools import BaseTool
 
 from minichem.agents.base import SubAgent, build_subagent
 from minichem.tools.registry import synthesis_tools
-from minichem.tools.retrosynthesis import Retrosynthesis
 
 
 def build_synthesis_agent(
-    llm: BaseChatModel, prompts: dict[str, str], retro: Retrosynthesis | None = None
+    llm: BaseChatModel, prompts: dict[str, str], extra_tools: Sequence[BaseTool] = ()
 ) -> SubAgent:
-    """`retro` is None unless retrosynthesis was explicitly enabled."""
-    return build_subagent("synthesis", llm, synthesis_tools(retro), prompts)
+    """`extra_tools` holds `retrosynthesis_check` when retrosynthesis was explicitly enabled."""
+    return build_subagent("synthesis", llm, [*synthesis_tools(), *extra_tools], prompts)
