@@ -17,6 +17,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from minichem.tools.models import ItemError
+from minichem.tools.reaction_types import classify_step
 from minichem.tools.route_check import forward_check
 
 DEFAULT_TIME_LIMIT_S = 120
@@ -55,6 +56,9 @@ class RouteStep(BaseModel):
     `forward_check` says whether the template, applied forward to the reactants, regenerates
     the product. `policy_probability` is the expansion model's confidence in the template and
     `template_support` is how many training reactions the template was extracted from.
+    `reaction_name` and `reagent_hint` come from the small table in `reaction_types.py` and are
+    None when no named reaction reproduces the product. The hint is the KIND of reagent the
+    reaction class needs, never amounts, solvents or temperatures.
     """
 
     product: RouteMolecule
@@ -62,6 +66,8 @@ class RouteStep(BaseModel):
     policy_probability: float | None = None
     template_support: int | None = None
     forward_check: bool
+    reaction_name: str | None = None
+    reagent_hint: str | None = None
 
 
 class Route(BaseModel):
@@ -101,6 +107,7 @@ def steps_from_tree(node: dict) -> list[RouteStep]:
         reactants = [RouteMolecule(smiles=c["smiles"], in_stock=c["in_stock"]) for c in children]
         probability = meta.get("policy_probability")
         support = meta.get("library_occurence")
+        reaction_type = classify_step([r.smiles for r in reactants], node["smiles"])
         steps.append(
             RouteStep(
                 product=RouteMolecule(smiles=node["smiles"], in_stock=node["in_stock"]),
@@ -110,6 +117,8 @@ def steps_from_tree(node: dict) -> list[RouteStep]:
                 forward_check=forward_check(
                     meta.get("template", ""), [r.smiles for r in reactants], node["smiles"]
                 ),
+                reaction_name=reaction_type.name if reaction_type else None,
+                reagent_hint=reaction_type.reagent_hint if reaction_type else None,
             )
         )
         for child in children:

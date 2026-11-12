@@ -64,7 +64,10 @@ def test_steps_come_from_the_tree_with_numbers_and_no_conditions():
         "policy_probability",
         "template_support",
         "forward_check",
+        "reaction_name",
+        "reagent_hint",
     }
+    assert step.reaction_name == "Acylation of an alcohol with an anhydride"
 
 
 def test_multi_step_trees_are_listed_target_first():

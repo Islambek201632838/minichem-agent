@@ -1,9 +1,18 @@
 # MiniChemAgent
 
-Small multi-agent chemistry assistant: a LangGraph supervisor routes requests to three agents
+Multi-agent chemistry assistant: a LangGraph supervisor routes requests to three agents
 (utility, design, synthesis) that call RDKit/PubChem tools via native tool calling. Portfolio project
-mirroring AstraZeneca's ChatInvent paper. Owner must be able to explain every decision in an interview,
-so **readability and explainability beat features**. Keep it small; do not add auth, databases, Docker, CI.
+mirroring AstraZeneca's ChatInvent paper, now being built towards production quality.
+
+## Engineering stance
+- **Build the robust, standard solution, not the minimal one.** Correct, tested, observable, and
+  failing safely. Add infrastructure (auth, persistence, containers, CI, rate limiting) when it makes
+  the system more reliable or deployable, and write down why. "Keep it small" is no longer a goal.
+- **The owner must still understand every decision.** Each non-trivial choice gets its reason in
+  `.claude/rules/` or the README, in plain words, with the alternative that was rejected.
+- **Verify, never assume.** Run real models and real data for behaviour changes; report real numbers; say
+  what was NOT verified. Heuristics (reaction names, scores) are labelled as heuristics in code and UI.
+- Do the precise thing: no placeholders, no guessed chemistry, no TODOs left in the code.
 
 Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `README.md`.
 
@@ -12,7 +21,7 @@ Detailed docs (loaded automatically): `.claude/rules/`. User-facing docs: `READM
 (`~/.local/bin`, installed with `uv python install 3.12 --default --preview`), but still use `uv run`.
 ```bash
 uv sync                                          # install, versions pinned with == in pyproject.toml
-uv run pytest -q                                 # 114 tests, no network, no API key, ~5 s
+uv run pytest -q                                 # 126 tests, no network, no API key, ~5 s
 uv run ruff check . && uv run ruff format .      # must be clean before finishing
 uv run python -m minichem.cli -v "question"      # real Gemini + MCP + PubChem, needs .env
 uv run uvicorn app.api:app --port 8000           # API
@@ -27,14 +36,14 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
   `pubchem.py`, `retrosynthesis.py` (optional, off), `registry.py` (LangChain tool wrappers).
 - `minichem/molecules.py` SMILES handles, masking, guard. `tracing.py` JSONL trace + token counts.
 - `minichem/prompts/*.md` all prompts. `assistant.py` public entry (`open_assistant`, `ChemAssistant.ask`).
-- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/retro_server.py` (retrosynthesis check + routes, runs in its own venv, off by default; steps are validated by `minichem/tools/route_check.py`). `app/api.py`, `ui/app.py` (+ `ui/route_view.py`: route schemes from `ChatResult.routes`), `minichem/cli.py`.
+- `mcp_server/server.py` FastMCP stdio server (properties, validation, similarity), `mcp_server/retro_server.py` (retrosynthesis check + routes, runs in its own venv, off by default; steps are validated by `minichem/tools/route_check.py` and named by `minichem/tools/reaction_types.py`). `app/api.py`, `ui/app.py` (+ `ui/route_view.py`: route schemes from `ChatResult.routes`), `minichem/cli.py`.
 - `eval/` `golden.yaml`, `checks.py`, `run_eval.py`, `results/` (+ `archive/`). `tests/` mirrors the code.
 
 ## Hard rules
 - **Never print or commit `.env`** (holds the Gemini key; `GEMINI_API_KEY` is accepted as alias of `GOOGLE_API_KEY`). Only `.env.example` is committed.
 - **All chemistry goes through tools.** The LLM must never compute or guess chemical facts. This rule lives in `prompts/common.md`.
 - **SMILES are data.** The supervisor must never see or write SMILES; it uses handles (`M1`). See `.claude/rules/smiles-handles.md`.
-- **Safety:** tools are read-only computation. No synthesis procedures, reagent amounts, or hazardous-substance advice. The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) without conditions; hazardous and controlled substances are declined without tools.
+- **Safety:** tools are read-only computation. No synthesis procedures (no amounts, solvents, temperatures, work-up) and no hazardous-substance advice. The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) with a textbook reaction name and a class-level reagent hint (e.g. 'a base', 'a palladium catalyst') from a fixed table in `reaction_types.py`, never LLM-written, and never amounts, solvents or temperatures; hazardous and controlled substances are declined without tools.
 - **No invented APIs.** Check installed signatures before using a library (several things differed from memory, see gotchas).
 - **Tools never raise into the agent loop**; they return `{"error","hint"}` or per-item `errors`.
 - Prompts stay in `prompts/*.md`, config stays in `config.py`, no magic strings scattered, no bare `except`, no emojis in code/README, no commented-out code.

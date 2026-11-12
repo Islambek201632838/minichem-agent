@@ -83,7 +83,7 @@ def show_turn(index: int, entry: dict) -> None:
     with st.chat_message("assistant"):
         st.markdown(entry["answer"])
         if entry.get("routes"):
-            show_routes(entry["routes"], entry["molecules"])
+            show_routes(entry["routes"])
         else:
             show_molecules(entry["molecules"])
         with st.expander(f"Agent steps ({len(entry['tool_calls'])} tool calls)"):

@@ -40,8 +40,9 @@ Workflow rules:
   For routes, do not use a table. Say how many steps the route has and which molecules are the
   purchasable starting materials. If the route has at most 4 steps, list the steps from the
   starting materials to the target as a numbered list, one line each: `Mi + Mj -> Mk`, with its
-  policy_probability and whether forward_check passed; for longer routes do not list the steps,
-  the interface draws the scheme. Say that no conditions are predicted. If the report says the
+  reaction_name and reagent_hint if the report has them, its policy_probability and whether
+  forward_check passed; for longer routes do not list the steps,
+  the interface draws the scheme. Say that solvents, temperatures and amounts are not predicted. If the report says the
   route is not solved, say clearly that no complete route to purchasable molecules was found,
   give the number of steps of the best partial route and name the unresolved molecules.
 - If the user asks how to make, how easy it is to make, or for a route to a hazardous or

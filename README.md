@@ -71,7 +71,7 @@ Other entry points:
 ```bash
 uv run uvicorn app.api:app --port 8000    # API
 uv run python -m streamlit run ui/app.py # UI (needs the API running; -m puts the project root on sys.path)
-uv run pytest                             # 114 tests, no network, no API key
+uv run pytest                             # 126 tests, no network, no API key
 uv run python -m eval.run_eval            # golden suite against the real model (3 runs per question)
 uv run python -m eval.run_eval --mock-tools --runs 1   # offline PubChem fixtures
 ```
@@ -173,7 +173,7 @@ changes, and tests assert that every agent's system prompt contains the shared s
 
 **Mock tools and scripted LLMs in tests.** Unit and agent tests need no network and no API key: PubChem
 is replaced by a fake HTTP session, the LLMs by scripted fakes. This makes routing, verbatim SMILES passing,
-step budgets, memory and error recovery deterministic and fast (114 tests in about 5 s). Real behaviour
+step budgets, memory and error recovery deterministic and fast (126 tests in about 5 s). Real behaviour
 is measured separately by the golden suite against the real model.
 
 **Errors are values.** Tools never raise into the agent loop. They return `{"error", "hint"}` or per-item
@@ -233,8 +233,12 @@ forward check: true.
 The API returns the full routes in the `routes` field of `/chat` (taken from the tool result in memory, not
 from the 300-character trace summary), and the Streamlit UI draws them (`ui/route_view.py`): the purchasable
 starting materials, then one RDKit reaction scheme per step in synthesis order (reactants, arrow, product),
-with the forward check, the template confidence and the molecule ids next to it. The scheme is a layout of the
-tool result; it adds no chemistry and shows no conditions.
+with the forward check, the template confidence and the molecule ids next to it. Molecules in a route are labelled by role (Target, Start, Intermediate, Unresolved), not by session ids.
+Each step carries a reaction name and a class-level reagent hint (for example "Suzuki coupling: a palladium
+catalyst and a base") from a fixed table of 16 textbook reactions in `minichem/tools/reaction_types.py`. A name is
+given only when the named template, run on the step's reactants, reproduces the step's product, so a step the
+table does not cover stays unnamed instead of being guessed; on the 11-step atorvastatin partial route 7 steps
+were named. The hint is the kind of reagent, never amounts, solvents or temperatures.
 
 Setup (nothing is installed or downloaded automatically):
 
@@ -369,5 +373,5 @@ mcp_server/      server.py                MCP server (stdio)
 app/api.py       FastAPI backend
 ui/app.py        Streamlit UI (~130 lines), ui/route_view.py draws retrosynthesis routes
 eval/            golden.yaml run_eval.py checks.py results/
-tests/           114 tests, no network
+tests/           126 tests, no network
 ```
