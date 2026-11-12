@@ -17,6 +17,8 @@ from uuid import UUID
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
 
+from minichem.jsonl import JsonlLog
+
 SUMMARY_CHARS = 300
 
 
@@ -57,13 +59,20 @@ def error_of(payload: Any) -> str | None:
 
 
 class Tracer(BaseCallbackHandler):
-    """Collects tool calls and token usage in memory and appends trace lines to a JSONL file."""
+    """Collects tool calls and token usage in memory and appends trace lines to a JSONL log.
+
+    Every line carries `session_id` and `request_id`, so one request can be followed across
+    the API log and the trace. `sink` is a `JsonlLog` (rotating), a path, or None (memory only).
+    """
 
     run_inline = True
 
-    def __init__(self, path: Path | None, session_id: str = "") -> None:
-        self._path = path
+    def __init__(
+        self, sink: JsonlLog | Path | None, session_id: str = "", request_id: str = ""
+    ) -> None:
+        self._sink = JsonlLog(sink) if isinstance(sink, Path) else sink
         self._session_id = session_id
+        self._request_id = request_id
         self._open: dict[UUID, dict[str, Any]] = {}
         self.tool_calls: list[ToolCall] = []
         self.results: list[
@@ -74,18 +83,18 @@ class Tracer(BaseCallbackHandler):
         self.output_tokens = 0
 
     def _write(self, kind: str, agent: str, **fields: Any) -> None:
-        if self._path is None:
+        if self._sink is None:
             return
-        record = {
-            "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
-            "session_id": self._session_id,
-            "kind": kind,
-            "agent": agent,
-            **fields,
-        }
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, default=str) + "\n")
+        self._sink.write(
+            {
+                "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
+                "request_id": self._request_id,
+                "session_id": self._session_id,
+                "kind": kind,
+                "agent": agent,
+                **fields,
+            }
+        )
 
     def step(self, agent: str, event: str, **detail: Any) -> None:
         """Record a non-tool step, e.g. a supervisor routing decision."""

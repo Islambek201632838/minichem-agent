@@ -1,0 +1,66 @@
+# API + UI from one image. Any compose implementation works (Docker, Podman, Colima + docker CLI).
+#
+#   cp .env.example .env     # set GOOGLE_API_KEY and API_KEYS (at least 16 characters each)
+#   docker compose up --build
+#
+# Both ports are published on 127.0.0.1 only. The API refuses to start without API_KEYS
+# (AUTH_REQUIRED) and without a Gemini key. The UI sends the first of API_KEYS.
+# Retrosynthesis stays off: the AiZynthFinder venv on the host is built for macOS and cannot run
+# in this Linux image (see README).
+
+x-minichem: &minichem
+  image: minichem:local
+  build: .
+  env_file: .env
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  api:
+    <<: *minichem
+    environment:
+      AUTH_REQUIRED: "true"
+      ENABLE_RETROSYNTHESIS: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - api-logs:/app/logs
+      - api-cache:/app/.cache
+
+  ui:
+    <<: *minichem
+    command:
+      - streamlit
+      - run
+      - ui/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --server.fileWatcherType=none
+      - --browser.gatherUsageStats=false
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ui-logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request as u; u.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  api-logs:
+  api-cache:
+  ui-logs:

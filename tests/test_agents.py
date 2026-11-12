@@ -37,6 +37,8 @@ def mcp_stand_in() -> list[StructuredTool]:
 
 def make_assistant(tmp_path, supervisor: ScriptedSupervisor, **replies: list) -> ChemAssistant:
     """`replies` maps utility/design/synthesis to scripted model replies (none = must not run)."""
+    checkpointer = replies.pop("checkpointer", None) or MemorySaver()
+    sessions = replies.pop("sessions", None)
     prompts = load_prompts()
     settings = Settings(
         _env_file=None,
@@ -58,9 +60,9 @@ def make_assistant(tmp_path, supervisor: ScriptedSupervisor, **replies: list) ->
         agents=agents,
         prompts=prompts,
         settings=settings,
-        checkpointer=MemorySaver(),
+        checkpointer=checkpointer,
     )
-    assistant = ChemAssistant(graph, settings)
+    assistant = ChemAssistant(graph, settings, sessions)
     assistant.models = models  # type: ignore[attr-defined]
     return assistant
 
@@ -321,13 +323,14 @@ async def test_every_step_and_tool_call_is_written_to_the_trace(tmp_path):
         supervisor,
         utility=[tool_call("name_to_smiles", name="aspirin"), AIMessage(content="ok")],
     )
-    await assistant.ask("Aspirin?", session_id="trace-test")
+    await assistant.ask("Aspirin?", session_id="trace-test", request_id="req-00000001")
     lines = [json.loads(x) for x in (tmp_path / "trace.jsonl").read_text().splitlines()]
     kinds = {(line["kind"], line["agent"]) for line in lines}
     assert ("tool", "utility") in kinds
     assert ("step", "supervisor") in kinds
     assert ("llm", "utility") in kinds
     assert all(line["session_id"] == "trace-test" for line in lines)
+    assert all(line["request_id"] == "req-00000001" for line in lines)
 
 
 def test_graph_refuses_to_build_without_all_agents(tmp_path):

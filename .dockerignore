@@ -1,0 +1,17 @@
+.git
+.venv
+.env
+.cache
+logs
+__pycache__
+.pytest_cache
+.ruff_cache
+.claude
+eval/results
+docs
+tests
+scripts
+README.md
+CLAUDE.md
+status.md
+questions.md

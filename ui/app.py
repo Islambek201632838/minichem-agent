@@ -11,6 +11,7 @@ import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Draw
 
+from app.security import API_KEY_HEADER
 from minichem.config import get_settings
 from ui.route_view import show_routes
 
@@ -25,10 +26,13 @@ EXAMPLES = [
 
 def call_api(message: str, session_id: str) -> dict:
     """POST /chat. Raises RuntimeError with a readable message on any failure."""
+    keys = SETTINGS.api_key_list()
+    headers = {API_KEY_HEADER: keys[0]} if keys else {}
     try:
         response = requests.post(
             f"{SETTINGS.api_url}/chat",
             json={"message": message, "session_id": session_id},
+            headers=headers,
             timeout=REQUEST_TIMEOUT_S,
         )
     except requests.RequestException as exc:

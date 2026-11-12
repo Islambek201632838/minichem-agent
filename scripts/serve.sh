@@ -46,11 +46,15 @@ cmd_start() {
     "$SRC/" "$APP/"
   if [[ -f "$SRC/.env" ]]; then ln -sf "$SRC/.env" "$APP/.env"; fi
   (cd "$APP" && uv sync --quiet)
-  (cd "$APP" && nohup .venv/bin/python -m uvicorn app.api:app --host 127.0.0.1 \
-    --port "$API_PORT" >"$RUN_ROOT/logs/api.log" 2>&1 & echo $! >"$RUN_ROOT/api.pid")
-  (cd "$APP" && nohup .venv/bin/python -m streamlit run ui/app.py --server.port "$UI_PORT" \
+  # exec: the background subshell becomes the server, so $! is the server's pid and `stop` kills it
+  # (without exec the pid file held the subshell and the server kept running after `stop`).
+  (cd "$APP" && exec nohup .venv/bin/python -m uvicorn app.api:app --host 127.0.0.1 \
+    --port "$API_PORT" >"$RUN_ROOT/logs/api.log" 2>&1) &
+  echo $! >"$RUN_ROOT/api.pid"
+  (cd "$APP" && exec nohup .venv/bin/python -m streamlit run ui/app.py --server.port "$UI_PORT" \
     --server.headless true --server.fileWatcherType none \
-    >"$RUN_ROOT/logs/ui.log" 2>&1 & echo $! >"$RUN_ROOT/ui.pid")
+    >"$RUN_ROOT/logs/ui.log" 2>&1) &
+  echo $! >"$RUN_ROOT/ui.pid"
   for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then break; fi
     sleep 1

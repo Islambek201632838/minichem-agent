@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# git pre-push hook: refuse the push if scripts/check.sh fails.
+# Install once per clone with scripts/install-hooks.sh. Skip in an emergency with
+# `git push --no-verify` (and say why in the commit or PR).
+set -euo pipefail
+
+exec "$(dirname "$0")/../check.sh"
