@@ -1,0 +1,193 @@
+# Complex-molecule set (category `complex`), written before its first run on 2026-11-12.
+# Same format and checks as eval/golden.yaml; run it with
+#   uv run python -m eval.run_eval --file eval/complex.yaml --runs 1 [--mock-tools]
+# Entities are drug-sized molecules (imatinib, osimertinib, sildenafil, paclitaxel, tofacitinib,
+# dasatinib, strychnine ...), all present in OFFLINE_COMPOUNDS so --mock-tools works. Expected
+# values were computed with RDKit from the PubChem SMILES in OFFLINE_COMPOUNDS before the first
+# model run (tests/test_complex_questions.py recomputes them), never copied from model output.
+# Only the LAST turn of a multi-turn entry is judged; earlier turns set up memory.
+# Retrosynthesis questions are not here: they need ENABLE_RETROSYNTHESIS and a separate venv.
+
+- id: c01
+  category: complex
+  question: "What are the molecular weight and logP of imatinib?"
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 493.62, tol: 0.05}, {value: 4.59, tol: 0.02}]
+
+- id: c02
+  category: complex
+  question: "Compare TPSA and QED of osimertinib and sildenafil."
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers:
+      - {value: 87.55, tol: 0.1}
+      - {value: 113.42, tol: 0.1}
+      - {value: 0.311, tol: 0.005}
+      - {value: 0.553, tol: 0.005}
+
+- id: c03
+  category: complex
+  question: "Give me the SA scores of paclitaxel and dasatinib. Which one is harder to make?"
+  expected_tools:
+    complete: [[name_to_smiles, sa_score]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 5.92, tol: 0.02}, {value: 2.65, tol: 0.02}]
+    regex: ['paclitaxel']
+
+- id: c04
+  category: complex
+  question: "Сравни по сходству Танимото иматиниб, нилотиниб и дазатиниб попарно. Какая пара ближе всего? У кого выше QED? Числа пиши с точкой."
+  expected_tools:
+    complete:
+      - [name_to_smiles, tanimoto_similarity, calculate_properties]
+      - [name_to_smiles, calculate_properties, tanimoto_similarity]
+    partial: [[name_to_smiles]]
+  checks:
+    # Pairs: imatinib-nilotinib 0.517, imatinib-dasatinib 0.275, nilotinib-dasatinib 0.184.
+    # QED: imatinib 0.389, nilotinib 0.266, dasatinib 0.466 (highest).
+    numbers:
+      - {value: 0.517, tol: 0.005}
+      - {value: 0.275, tol: 0.005}
+      - {value: 0.184, tol: 0.005}
+      - {value: 0.466, tol: 0.005}
+    regex: ['нилотиниб']
+
+- id: c05
+  category: complex
+  question: "Find tofacitinib, ruxolitinib and baricitinib. Make a table of MW, logP, TPSA and QED, keep only those with TPSA at most 100, and compute the SA score for the ones that remain."
+  expected_tools:
+    complete:
+      - [name_to_smiles, calculate_properties, sa_score]
+      - [name_to_smiles, filter_molecules, sa_score]
+    partial: [[name_to_smiles, calculate_properties], [name_to_smiles, filter_molecules]]
+  checks:
+    # TPSA: tofacitinib 88.91, ruxolitinib 83.18, baricitinib 120.56 (removed).
+    # SA: tofacitinib 3.67, ruxolitinib 3.40; baricitinib would be 3.25 and must not be reported.
+    numbers:
+      - {value: 312.38, tol: 0.05}
+      - {value: 306.37, tol: 0.05}
+      - {value: 88.91, tol: 0.1}
+      - {value: 83.18, tol: 0.1}
+      - {value: 3.67, tol: 0.02}
+      - {value: 3.4, tol: 0.02}
+    regex_none: ['3\.25\b']
+
+- id: c06
+  category: complex
+  question: "Give me structural flags and SA scores for strychnine and paclitaxel. Do either of them have unspecified stereocentres?"
+  expected_tools:
+    complete: [[name_to_smiles, structural_flags, sa_score], [name_to_smiles, sa_score, structural_flags]]
+    partial: [[name_to_smiles]]
+  checks:
+    # SA: strychnine 5.72, paclitaxel 5.92. Both have fully specified stereocentres in the PubChem
+    # SMILES (strychnine 6, paclitaxel 11, none unspecified). Strychnine has a spiro centre.
+    numbers: [{value: 5.72, tol: 0.02}, {value: 5.92, tol: 0.02}]
+    regex: ['spiro', 'bridg']
+    regex_any:
+      - '(no|0|zero|none)[^.\n]{0,40}unspecified'
+      - 'unspecified[^.\n]{0,60}\b(0|none|zero)\b'
+      - '(all|every)[^.\n]{0,80}(specified|defined|assigned)'
+      - '(fully|completely) (specified|defined)'
+
+- id: c07
+  category: complex
+  question: "Does paclitaxel satisfy Lipinski's rule of five? Give MW, logP, HBD and HBA and count the violations."
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    # RDKit: MW 853.92 (violation), logP 3.74, HBD 4, HBA 14 (violation): 2 violations.
+    numbers: [{value: 853.92, tol: 0.05}, {value: 3.74, tol: 0.02}, {value: 14, tol: 0.01}]
+    regex_any: ['violat[^.\n]{0,60}\b(2|two)\b', '\b(2|two)\b[^.\n]{0,60}violat']
+
+- id: c08
+  category: complex
+  turns:
+    - "Find dasatinib and calculate its properties."
+    - "Now generate 10 analogues of it with logP of at most 4."
+  expected_tools:
+    complete: [[generate_analogues]]
+  checks:
+    smiles_property:
+      constraints: {logp_max: 4}
+      min_count: 5
+
+- id: c09
+  category: complex
+  turns:
+    - "Find dasatinib and calculate its properties."
+    - "Now generate 10 analogues of it with logP of at most 4."
+    - "For the most similar of them show the SA score and compare it with the SA score of dasatinib itself."
+  expected_tools:
+    complete: [[sa_score]]
+  checks:
+    # Most similar analogue (Tanimoto 0.924): SA 2.67; dasatinib: 2.65.
+    numbers: [{value: 2.67, tol: 0.005}, {value: 2.65, tol: 0.005}]
+
+- id: c10
+  category: complex
+  question: "Take imatinib, generate 15 analogues with MW up to 480, logP up to 4 and HBD at most 2, rank them by similarity to imatinib and show the SA score for the five most similar."
+  expected_tools:
+    complete: [[name_to_smiles, generate_analogues, sa_score]]
+    partial: [[name_to_smiles, generate_analogues]]
+  checks:
+    # The generator returns only 10 candidates under these constraints (its own note says so);
+    # SA of the five most similar: 1.97, 2.21, 2.25, 2.04, 2.04. The answer must say it is not 15.
+    smiles_property:
+      constraints: {mw_max: 480, logp_max: 4, hbd_max: 2}
+      min_count: 5
+      exclude: ["Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"]
+    numbers:
+      - {value: 1.97, tol: 0.005}
+      - {value: 2.21, tol: 0.005}
+      - {value: 2.25, tol: 0.005}
+      - {value: 2.04, tol: 0.005}
+    regex_any: ['only (10|ten)', '\b(10|ten)\b (analogues|analogs|candidates|molecules|compounds)', '(fewer|less) than (the )?(15|requested)', 'could (only )?(find|generate|return)']
+
+- id: c11
+  category: complex
+  question: "Compare imatinib with the compound fufflomycin by Tanimoto similarity."
+  expected_tools:
+    complete: [[name_to_smiles]]
+  checks:
+    regex_any: ['not found', 'no compound', 'could not', "couldn't", 'unable', 'no match', 'no such', 'not (be )?(recogni[sz]ed|resolved|identified)', 'failed', 'unsuccessful', "can't", 'cannot', 'does not exist', "doesn't exist"]
+    regex_none: ['tanimoto[^.\n]{0,60}\b0\.\d+']
+
+- id: c12
+  category: complex
+  question: "Сравни QED дазатиниба и тофацитиниба и скажи, у какого выше. Числа пиши с точкой."
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 0.466, tol: 0.005}, {value: 0.928, tol: 0.005}]
+    regex: ['тофацитиниб']
+
+- id: c13
+  category: complex
+  question: "Does osimertinib have any structural alerts? Which one, and what does it point to in the molecule?"
+  expected_tools:
+    complete: [[name_to_smiles, structural_flags]]
+    partial: [[name_to_smiles]]
+  checks:
+    # RDKit Brenk catalogue: Michael_acceptor_1 (the acrylamide), the only alert.
+    regex: ['michael']
+
+- id: c14
+  category: complex
+  question: "From imatinib, nilotinib, dasatinib, osimertinib and sildenafil keep only the molecules with MW up to 495 and at most 2 H-bond donors."
+  expected_tools:
+    complete: [[name_to_smiles, filter_molecules]]
+    partial: [[name_to_smiles, calculate_properties]]
+  checks:
+    # Pass: imatinib (493.62, HBD 2), sildenafil (474.59, HBD 1). Fail: nilotinib (529.53),
+    # dasatinib (HBD 3), osimertinib (499.62).
+    smiles_present:
+      - "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"
+      - "CCCc1nn(C)c2c(=O)[nH]c(-c3cc(S(=O)(=O)N4CCN(C)CC4)ccc3OCC)nc12"

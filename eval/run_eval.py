@@ -4,6 +4,7 @@ uv run python -m eval.run_eval                  # 3 runs per question, live PubC
 uv run python -m eval.run_eval --mock-tools     # offline PubChem fixtures, isolates the agents
 uv run python -m eval.run_eval --ids t01,w03 --runs 1
 uv run python -m eval.run_eval --file eval/generated.yaml --runs 1   # generated questions
+uv run python -m eval.run_eval --file eval/complex.yaml --runs 1     # drug-sized molecules
 """
 
 from __future__ import annotations
@@ -157,12 +158,16 @@ async def main_async(args: argparse.Namespace) -> None:
     print(format_report(entries, records))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     RESULTS_DIR.mkdir(exist_ok=True)
-    out = RESULTS_DIR / f"{stamp}{'-mock-tools' if args.mock_tools else ''}.json"
+    suffix = ("-mock-tools" if args.mock_tools else "") + (
+        "-reinvent" if settings.enable_reinvent else ""
+    )
+    out = RESULTS_DIR / f"{stamp}{suffix}.json"
     out.write_text(
         json.dumps(
             {
                 "model": settings.gemini_model,
                 "mock_tools": args.mock_tools,
+                "enable_reinvent": settings.enable_reinvent,
                 "runs_per_question": args.runs,
                 "wall_time_s": round(time.perf_counter() - started, 1),
                 "summary": summarise(records),
@@ -191,7 +196,7 @@ def main() -> None:
     parser.add_argument("--file", type=Path, default=GOLDEN_PATH, help="question file (YAML)")
     parser.add_argument("--ids", help="comma-separated golden ids, e.g. t01,w03")
     parser.add_argument(
-        "--category", choices=["tool_specific", "workflow", "boundary", "generated"]
+        "--category", choices=["tool_specific", "workflow", "boundary", "generated", "complex"]
     )
     parser.add_argument("--mock-tools", action="store_true", help="offline PubChem fixtures")
     parser.add_argument("--pause", type=float, default=0.0, help="seconds between runs")

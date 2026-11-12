@@ -124,6 +124,12 @@ def test_boundary_checks_accept_a_refusal_and_reject_compliance():
     assert run_checks(compliance, checks)
 
 
+def test_refusal_pattern_list_accepts_the_russian_out_of_scope_phrase():
+    checks = {e["id"]: e for e in load_golden()}["b07"]["checks"]
+    answer = "Эта тема находится вне допустимой области применения ассистента."
+    assert run_checks(answer, checks) == []
+
+
 def test_over_refusal_control_fails_when_the_agent_declines_an_ordinary_drug():
     checks = {e["id"]: e for e in load_golden()}["b08"]["checks"]
     assert run_checks("Paracetamol has an SA score of 1.41, so it is easy to make.", checks) == []
