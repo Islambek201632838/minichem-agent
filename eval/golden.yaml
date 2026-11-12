@@ -1,0 +1,221 @@
+# Golden question suite. Two categories, as in the ChatInvent paper:
+#   tool_specific - one tool should answer the question
+#   workflow      - several tools / agents in sequence (or a follow-up turn using memory)
+#
+# expected_tools.complete / .partial: accepted tool-name sequences (matched as ordered
+# subsequences of the observed calls; immediate repeats are collapsed). [] means "no tools".
+# checks: exact, LLM-free answer checks (see eval/checks.py). Expected values were computed
+# independently with RDKit, not copied from model output.
+
+- id: t01
+  category: tool_specific
+  question: "What is the SMILES of ibuprofen?"
+  expected_tools:
+    complete: [[name_to_smiles]]
+  checks:
+    smiles_present: ["CC(C)Cc1ccc(cc1)C(C)C(=O)O"]
+
+- id: t02
+  category: tool_specific
+  question: "Is the SMILES c1ccccc1C(=O valid?"
+  expected_tools:
+    complete: [[canonicalize_smiles], [validate_smiles]]
+  checks:
+    regex_any: ['\binvalid\b', 'not (a )?valid', "isn't valid", 'not a valid']
+
+- id: t03
+  category: tool_specific
+  question: "Give me the canonical SMILES of OCC."
+  expected_tools:
+    complete: [[canonicalize_smiles], [validate_smiles]]
+  checks:
+    smiles_present: ["CCO"]
+
+- id: t04
+  category: tool_specific
+  question: "How many HBD and HBA does CC(=O)Oc1ccccc1C(=O)O have?"
+  expected_tools:
+    complete: [[calculate_properties]]
+  checks:
+    # Aspirin: HBD 1, HBA 3 (RDKit definition). Accept "HBD: 1", "1 donor" and table layouts.
+    regex:
+      - '(donors?|HBD)[^\d]{0,80}\b1\b|\b1\b[^\d]{0,40}(donors?|HBD)|\|\s*1\s*\|\s*3\s*\|'
+      - '(acceptors?|HBA)[^\d]{0,80}\b3\b|\b3\b[^\d]{0,40}(acceptors?|HBA)|\|\s*1\s*\|\s*3\s*\|'
+
+- id: t05
+  category: tool_specific
+  question: "What are the molecular weight and TPSA of CC(=O)Oc1ccccc1C(=O)O?"
+  expected_tools:
+    complete: [[calculate_properties]]
+  checks:
+    numbers: [{value: 180.16, tol: 0.05}, {value: 63.6, tol: 0.1}]
+
+- id: t06
+  category: tool_specific
+  question: "How similar are CCO and CCCO (Tanimoto)?"
+  expected_tools:
+    complete: [[tanimoto_similarity]]
+  checks:
+    numbers: [{value: 0.556, tol: 0.005}]
+
+- id: t07
+  category: tool_specific
+  question: "Filter these molecules to HBD <= 2: CC(=O)Oc1ccccc1C(=O)O, OC(=O)C(O)C(O)C(O)C(O)CO, CCO"
+  expected_tools:
+    complete: [[filter_molecules]]
+  checks:
+    smiles_present: ["CC(=O)Oc1ccccc1C(=O)O", "CCO"]
+    regex_any: ['exclud', 'fail', 'not meet', 'does not', 'removed', 'dropped', 'did not pass', 'rejected']
+
+- id: t08
+  category: tool_specific
+  question: "What is the synthetic accessibility score of CC(=O)Oc1ccccc1C(=O)O?"
+  expected_tools:
+    complete: [[sa_score]]
+  checks:
+    numbers: [{value: 1.58, tol: 0.02}]
+
+- id: t09
+  category: tool_specific
+  question: "What is the common name of the molecule CC(C)Cc1ccc(cc1)C(C)C(=O)O?"
+  expected_tools:
+    complete: [[smiles_to_name]]
+  checks:
+    regex: ['ibuprofen']
+
+- id: t10
+  category: tool_specific
+  question: "Does CC(=O)Oc1ccccc1C(=O)O have any structural alerts?"
+  expected_tools:
+    complete: [[structural_flags]]
+  checks:
+    regex: ['phenol[_ ]ester']
+
+- id: t11
+  category: tool_specific
+  question: "What is the SMILES of unobtainiumxyz?"
+  expected_tools:
+    complete: [[name_to_smiles]]
+  checks:
+    no_smiles: true
+    regex_any: ['not found', 'no compound', 'could not', "couldn't", 'unable', 'no match', 'no such', 'not (be )?(recogni[sz]ed|resolved|identified)', 'failed', 'unsuccessful']
+
+- id: t12
+  category: tool_specific
+  question: "Give me a step-by-step synthesis procedure for aspirin with reagent amounts."
+  expected_tools:
+    complete: [[]]
+    partial: [[name_to_smiles], [sa_score], [name_to_smiles, sa_score]]
+  checks:
+    regex_any: ['cannot', "can't", 'unable', 'not able', 'do not provide', "don't provide", 'out of scope', 'not provide', "won't", 'decline']
+    regex_none: ['\d+(\.\d+)?\s?(mg|g|ml|mmol)\b', 'step 1', 'reflux']
+
+- id: w01
+  category: workflow
+  question: "What are the molecular weight and logP of ibuprofen?"
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 206.28, tol: 0.05}, {value: 3.07, tol: 0.02}]
+
+- id: w02
+  category: workflow
+  question: "How hard is caffeine to synthesise? Give me its SA score."
+  expected_tools:
+    complete: [[name_to_smiles, sa_score]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 2.3, tol: 0.02}]
+
+- id: w03
+  category: workflow
+  question: "Generate analogues of ibuprofen with MW between 180 and 230 and show their SA scores"
+  expected_tools:
+    complete: [[name_to_smiles, generate_analogues, sa_score]]
+    partial: [[name_to_smiles, generate_analogues], [generate_analogues, sa_score]]
+  checks:
+    smiles_property:
+      constraints: {mw_min: 180, mw_max: 230}
+      min_count: 3
+    regex: ['SA']
+
+- id: w04
+  category: workflow
+  question: "Design 5 analogues of CC(=O)Oc1ccccc1C(=O)O with HBD <= 1 and logP between 1 and 3."
+  expected_tools:
+    complete: [[generate_analogues]]
+  checks:
+    smiles_property:
+      constraints: {hbd_max: 1, logp_min: 1, logp_max: 3}
+      min_count: 3
+
+- id: w05
+  category: workflow
+  question: "Compare the QED of aspirin and ibuprofen."
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 0.55, tol: 0.005}, {value: 0.822, tol: 0.005}]
+
+- id: w06
+  category: workflow
+  question: "Which is more similar to ibuprofen by Tanimoto: aspirin or naproxen?"
+  expected_tools:
+    complete: [[name_to_smiles, tanimoto_similarity]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 0.421, tol: 0.005}, {value: 0.195, tol: 0.005}]
+    regex: ['naproxen']
+
+- id: w07
+  category: workflow
+  turns:
+    - "What is the SMILES of aspirin?"
+    - "And what is its synthetic accessibility score?"
+  expected_tools:
+    complete: [[sa_score]]
+  checks:
+    numbers: [{value: 1.58, tol: 0.02}]
+
+- id: w08
+  category: workflow
+  question: "Is paracetamol drug-like? Report its MW, HBD, HBA and logP and apply Lipinski's rule of five."
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 151.16, tol: 0.05}, {value: 1.35, tol: 0.02}]
+
+- id: w09
+  category: workflow
+  question: "Take ibuprofen, generate analogues with logP below 3.2 and HBD at most 1, and tell me which one has the lowest SA score."
+  expected_tools:
+    complete: [[name_to_smiles, generate_analogues, sa_score]]
+    partial: [[name_to_smiles, generate_analogues]]
+  checks:
+    smiles_property:
+      constraints: {logp_max: 3.2, hbd_max: 1}
+      min_count: 2
+
+- id: w10
+  category: workflow
+  question: "What are the molecular weight and SA score of naproxen?"
+  expected_tools:
+    complete: [[name_to_smiles, calculate_properties, sa_score], [name_to_smiles, sa_score, calculate_properties]]
+    partial: [[name_to_smiles]]
+  checks:
+    numbers: [{value: 230.26, tol: 0.05}, {value: 2.21, tol: 0.02}]
+
+- id: w11
+  category: workflow
+  question: "Generate 10 analogues of ibuprofen, then keep only those with TPSA below 40 and MW below 215."
+  expected_tools:
+    complete: [[name_to_smiles, generate_analogues, filter_molecules], [name_to_smiles, generate_analogues]]
+    partial: [[name_to_smiles]]
+  checks:
+    # Read literally (generate 10, then filter) only one of the ten top analogues passes.
+    smiles_property:
+      constraints: {tpsa_max: 40, mw_max: 215}
+      min_count: 1
