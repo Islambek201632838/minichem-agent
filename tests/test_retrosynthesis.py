@@ -56,3 +56,10 @@ def test_assistant_requires_both_aizynth_paths(tmp_path):
     )
     with pytest.raises(RuntimeError, match="AIZYNTH_PYTHON"):
         _retro_server_config(settings)
+
+
+def test_routes_tool_rejects_invalid_smiles_without_raising():
+    from mcp_server import retro_server
+
+    result = retro_server.retrosynthesis_routes("bad")
+    assert result.error == "Invalid SMILES."

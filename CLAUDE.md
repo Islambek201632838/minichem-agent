@@ -34,7 +34,7 @@ uv run python -m eval.run_eval [--runs N] [--ids t01,w03] [--mock-tools]   # rea
 - **Never print or commit `.env`** (holds the Gemini key; `GEMINI_API_KEY` is accepted as alias of `GOOGLE_API_KEY`). Only `.env.example` is committed.
 - **All chemistry goes through tools.** The LLM must never compute or guess chemical facts. This rule lives in `prompts/common.md`.
 - **SMILES are data.** The supervisor must never see or write SMILES; it uses handles (`M1`). See `.claude/rules/smiles-handles.md`.
-- **Safety:** tools are read-only computation. No synthesis procedures, reagent amounts, or hazardous-substance advice. The synthesis agent reports computed scores/flags only.
+- **Safety:** tools are read-only computation. No synthesis procedures, reagent amounts, or hazardous-substance advice. The synthesis agent reports computed scores/flags and, if retrosynthesis is on, template-derived disconnections (product <- reactants) without conditions; hazardous and controlled substances are declined without tools.
 - **No invented APIs.** Check installed signatures before using a library (several things differed from memory, see gotchas).
 - **Tools never raise into the agent loop**; they return `{"error","hint"}` or per-item `errors`.
 - Prompts stay in `prompts/*.md`, config stays in `config.py`, no magic strings scattered, no bare `except`, no emojis in code/README, no commented-out code.

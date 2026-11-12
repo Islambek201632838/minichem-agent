@@ -1,4 +1,4 @@
-"""MCP server that summarises AiZynthFinder retrosynthesis searches (counts and score only).
+"""MCP server for AiZynthFinder: route summaries and route steps (reactions, no conditions).
 
 AiZynthFinder needs rdkit<2024 and numpy<2, which conflict with this project's pins, so this
 server runs with the Python of a separate virtualenv (settings: AIZYNTH_PYTHON) and the agent
@@ -19,8 +19,14 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 from rdkit import Chem
 
-from minichem.tools.models import ItemError
-from minichem.tools.retrosynthesis import AiZynthRetrosynthesis, RetroResponse, RetroResult
+from minichem.tools.models import ItemError, ToolError
+from minichem.tools.retrosynthesis import (
+    MAX_ROUTES,
+    AiZynthRetrosynthesis,
+    RetroResponse,
+    RetroResult,
+    RoutesResponse,
+)
 
 CONFIG_ENV = "AIZYNTH_CONFIG"
 MAX_RETRO_BATCH = 5  # each search takes seconds to a minute, so batches stay small
@@ -62,6 +68,23 @@ def retrosynthesis_check(
         else:
             results.append(_finder().analyse(smiles))
     return RetroResponse(results=results, errors=errors)
+
+
+@mcp.tool()
+def retrosynthesis_routes(
+    smiles: Annotated[str, Field(description="One SMILES string, copied exactly.")],
+    max_routes: Annotated[int, Field(ge=1, le=MAX_ROUTES, description="Routes to return.")] = 2,
+) -> RoutesResponse | ToolError:
+    """Return the best retrosynthetic routes for ONE molecule as a list of disconnections.
+
+    Each step gives the product, its reactants (with in_stock = purchasable), the template
+    model's probability and a forward check that the reversed template reproduces the product.
+    It predicts no temperatures, catalysts, solvents or amounts. Use when asked for routes,
+    precursors or reactions, not just whether a route exists. Searches are slow.
+    """
+    if Chem.MolFromSmiles(smiles) is None:
+        return ToolError(error="Invalid SMILES.", hint="Pass a SMILES taken from a tool result.")
+    return _finder().routes(smiles, max_routes)
 
 
 if __name__ == "__main__":

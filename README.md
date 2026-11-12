@@ -212,11 +212,16 @@ explore chemical space beyond local edits, and some outputs are chemically odd (
 cannot share this project's environment: version 4.4.1 requires `rdkit<2024` and `numpy<2`, while this project
 pins a newer RDKit. So it runs as a second MCP server, `mcp_server/retro_server.py`, started with the Python of
 its own virtualenv. The agent talks to it over stdio exactly like the RDKit server, which keeps the two RDKit
-versions in separate processes. The tool `retrosynthesis_check` takes up to 5 SMILES and returns only
-`solved`, the number of routes, the steps of the shortest route and the top route score: no reagents,
-conditions or step lists. Search time is capped at 60 s per molecule. The adapter
-(`AiZynthRetrosynthesis` in `minichem/tools/retrosynthesis.py`) uses only the calls shown in AiZynthFinder's
-Python interface documentation; `MockRetrosynthesis` serves the unit tests.
+versions in separate processes. Two tools: `retrosynthesis_check` takes up to 5 SMILES and returns `solved`, the
+number of routes, the steps of the shortest route and the top score; `retrosynthesis_routes` takes one molecule and
+returns up to 3 routes as lists of steps, each step being `product <- reactants` with `in_stock` (purchasable, ZINC),
+the template model's `policy_probability`, `template_support` (training reactions behind the template) and
+`forward_check`: the retro template is reversed with RDKit, applied to the reactants, and must reproduce the
+product. Only routes whose starting materials are all in stock are returned. The models predict no temperatures,
+catalysts, solvents or amounts, and the agent is told never to add them. Search time is capped at 60 s per molecule.
+The adapter (`AiZynthRetrosynthesis` in `minichem/tools/retrosynthesis.py`) uses AiZynthFinder's Python interface
+(`ReactionTree.to_dict()` for the steps); `MockRetrosynthesis` serves the unit tests, and the route parsing and
+forward check are tested against a real tree captured for aspirin.
 
 Setup (nothing is installed or downloaded automatically):
 
