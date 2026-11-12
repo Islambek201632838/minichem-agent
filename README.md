@@ -473,6 +473,21 @@ uv pip install --python ~/tools/precedents/.venv/bin/python reaction_utils==1.9.
 # PRECEDENTS_DATA_DIR=~/tools/precedents/data
 ```
 
+**Second backend: hosted Open Reaction Database (ORD), `PRECEDENTS_BACKEND=ord`.** The same tool can search the free
+ORD API (`open-reaction-database.org/api`, run by the ORD project, no key, terms and rate limits not found) instead
+of the local 3.5 GB index; nothing needs installing (`ENABLE_PRECEDENTS=true` is enough). The product SMILES of the
+step is sent to that service. `minichem/tools/ord_client.py` searches patent reactions only (exact product, then
+products with Tanimoto 0.7 or more), `ord_precedents.py` fetches the records and ranks them here by fingerprint
+similarity of product and reactants. It is NOT the local method: the step is not atom-mapped and no reaction type is
+matched, so `mapping_confidence` and `centre_similarity` are empty. ORD records also hold temperatures, times, amounts
+and the verbatim procedure; the parser reads only reaction SMILES, patent, year and yield (tested), so none of it
+can be shown. Measured on 2026-11-13: single product searches took 3.6 s (exact) and 9 s (similar) when the server
+was free, but later the shared server answered 503 "all search slots busy", 504, or did not answer within 45 s, even
+for trivial queries; in the last attempts both test molecules failed. The tool then returns an error value and the
+agent says that no precedents are available. The ranking on live search results was NOT verified (the search was
+down); record parsing and ranking are tested with fake clients and records built from the ORD schema. The local
+backend stays the default, and the local files were not deleted, because the hosted service did not prove reliable.
+
 A single Zenodo connection ran at about 0.1 MB/s on the owner's Mac; downloading each file in 16 parallel
 byte ranges (`curl -r`) took about 4 minutes in total. Check size and md5 of every file.
 

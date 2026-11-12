@@ -29,6 +29,12 @@ PROVENANCE = (
     "as the patent record has them (not told apart); no temperatures, times or amounts exist "
     "in the data."
 )
+ORD_PROVENANCE = (
+    "From US patents 1976-2016 as held by the Open Reaction Database (ORD; Kearnes et al., "
+    "J. Am. Chem. Soc. 2021, 143, 18820; patent extraction by D. Lowe), text-mined, not "
+    "verified. Reagents and solvents are listed as the patent record has them (not told apart); "
+    "no temperatures, times or amounts are given."
+)
 
 
 class PrecedentSetupError(RuntimeError):
@@ -44,17 +50,18 @@ class PrecedentMolecule(BaseModel):
 class Precedent(BaseModel):
     """One reaction from a patent record, ranked by similarity to the query step.
 
-    `similarity` compares the whole reaction and `centre_similarity` the atoms that change,
-    both 0-1 from fingerprints (a ranking heuristic, not a probability). `yield_percent` is the
-    text-mined yield of the record. Summary fields come first because the supervisor sees tool
-    results cut to a fixed length.
+    `similarity` compares the whole step (0-1, fingerprints; a ranking heuristic, not a
+    probability) and `centre_similarity` the atoms that change (local database only).
+    `yield_percent` is the text-mined yield of the record. Summary fields come first because
+    the supervisor sees tool results cut to a fixed length.
     """
 
     patent: str = Field(description="US patent number as in the record, e.g. US03931151")
+    reaction_id: str | None = Field(default=None, description="ORD reaction id, when from ORD.")
     year: int
     yield_percent: float | None = None
     similarity: float
-    centre_similarity: float
+    centre_similarity: float | None = None
     reactants: list[PrecedentMolecule]
     reagents_and_solvents: list[PrecedentMolecule]
     product: PrecedentMolecule
@@ -64,11 +71,16 @@ class PrecedentsResponse(BaseModel):
     """Precedents for one step. `provenance` must be passed on with every precedent shown."""
 
     provenance: str = PROVENANCE
-    mapping_confidence: float = Field(
+    mapping_confidence: float | None = Field(
+        default=None,
         description="Confidence (0-1) of the atom mapping of the query step; low means the "
-        "step was probably mapped wrongly and the precedents are less relevant."
+        "step was probably mapped wrongly and the precedents are less relevant. Only the local "
+        "database maps the step; the ORD search does not and leaves this empty.",
     )
-    n_candidates: int = Field(description="Reactions of the same reaction type in the database.")
+    n_candidates: int = Field(
+        description="Reactions the ranking chose from: those of the same reaction type in the "
+        "local database, or the patent reactions the ORD search returned for the product."
+    )
     precedents: list[Precedent]
 
 
@@ -129,6 +141,21 @@ def clean_mapped(mapped: str) -> str:
     for smiles in left.split("."):
         (reactants if _map_numbers(smiles) & product_maps else reagents).append(smiles)
     return f"{'.'.join(reactants)}>{'.'.join(reagents)}>{product}"
+
+
+def move_unmapped_reactants(extracted: str) -> str:
+    """Rebuild an extracted `reactants>reagents>product` reaction as `clean_mapped` does.
+
+    Reactants with no atom map shared with the product (an ether the extraction listed as a
+    reactant) are moved to the reagents, the same rule the local database was built with.
+    """
+    reactants, reagents, product = extracted.split()[0].split(">")
+    product_maps = _map_numbers(product)
+    kept: list[str] = []
+    moved = [s for s in reagents.split(".") if s]
+    for smiles in (s for s in reactants.split(".") if s):
+        (kept if _map_numbers(smiles) & product_maps else moved).append(smiles)
+    return f"{'.'.join(kept)}>{'.'.join(moved)}>{product}"
 
 
 def parse_record(clean: str) -> tuple[list[str], list[str], str]:

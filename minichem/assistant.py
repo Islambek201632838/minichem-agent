@@ -167,7 +167,24 @@ def _reinvent_server_config(settings: Settings) -> dict:
 
 
 def _precedent_server_config(settings: Settings) -> dict:
-    """Stdio config for the precedent server, which runs in its own venv (rxnmapper, torch)."""
+    """Stdio config for the precedent server.
+
+    The ORD backend runs in the project's Python and needs no data; the local backend runs in
+    its own venv (rxnmapper, torch).
+    """
+    if settings.precedents_backend == "ord":
+        return {
+            "transport": "stdio",
+            "command": sys.executable,
+            "args": ["-m", "mcp_server.precedent_server"],
+            "cwd": str(PROJECT_ROOT),
+            "env": {
+                "PRECEDENTS_BACKEND": "ord",
+                "ORD_API_URL": settings.ord_api_url,
+                "ORD_SEARCH_TIMEOUT_S": str(settings.ord_search_timeout_s),
+                "PYTHONPATH": str(PROJECT_ROOT),
+            },
+        }
     if settings.precedents_python is None or settings.precedents_data_dir is None:
         raise RuntimeError(
             "ENABLE_PRECEDENTS needs PRECEDENTS_PYTHON and PRECEDENTS_DATA_DIR (see README)."

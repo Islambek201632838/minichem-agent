@@ -173,3 +173,27 @@ Options, none decided:
 
 Sample files are in the session scratchpad, not in the project; no dependency, setting or prompt was
 changed.
+
+
+## Hosted ORD backend (added 2026-11-13, owner: "replace the local one with the ORD API")
+
+Implemented as a second backend (`PRECEDENTS_BACKEND=ord`, default `local`), not as a replacement, because the
+hosted service failed the reliability test (owner's own condition: delete the local files only if it works well).
+- Code: `minichem/tools/ord_client.py` (HTTP, 503 retried twice, 504 not retried), `ord_precedents.py` (search,
+  parse, rank), `minichem/ord_proto/reaction_pb2.py` (copied unchanged from ord-schema 0.9.6, Apache-2.0; ord-schema
+  itself is not installed: it pins protobuf<6 and pulls pandas and pyarrow; `protobuf==7.36.2` is pinned in the project).
+- Search: patent reactions only (`provenance.patent` not null), so the rule "reagents and solvents only from a US
+  patent record" is unchanged. Step 1 exact product (`same_compound`), step 2 similar products (0.7) if fewer than
+  10 hits. Rejected: the API's `reaction_smarts` (504 in earlier tests) and `/ask` (an LLM on their side).
+- Reagents and solvents are the middle part of the record's `REACTION_CXSMILES` (as in the local data); reactants
+  without an atom map shared with the product move there. Component roles are NOT used (they were wrong in the
+  record read: ether as reactant, triethylamine as solvent).
+- Safety: only reaction SMILES, patent, year and yield are read; temperature, time, amounts, workups, procedure text
+  are never read (test `test_parsed_record_holds_no_conditions`). Licence: ORD data CC BY-SA 4.0; nothing is stored
+  or shared, results are shown in answers with the ORD citation in `ORD_PROVENANCE`.
+- Privacy: the product SMILES leaves the machine. Down: tool returns `{"error","hint"}`.
+- Measured 2026-11-13: 3.6 s exact and 9 s similar search when free; afterwards 503/504/timeouts for the rest of the
+  session (also on `dataset_id` queries, 40 s). Possibly partly caused by our own earlier heavy queries (the server
+  finishes a search after the 504); not established. NOT verified: ranking quality on live results, real-model run.
+- Next: re-measure at another time (3 to 5 spaced calls); if it answers reliably under about 15 s, run the precedent
+  questions with the real model and only then consider removing `~/tools/precedents` (2.0 GB).

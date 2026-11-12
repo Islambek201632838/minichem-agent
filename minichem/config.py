@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     enable_precedents: bool = False
     precedents_python: Path | None = None
     precedents_data_dir: Path | None = None
+    precedents_backend: Literal["local", "ord"] = "local"
+    ord_api_url: str = "https://open-reaction-database.org/api"
+    ord_search_timeout_s: float = 45.0
 
     def require_api_key(self) -> str:
         """Return the Gemini key or fail with an actionable message."""
