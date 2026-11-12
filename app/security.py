@@ -8,7 +8,6 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 
-API_KEY_HEADER = "X-API-Key"
 ANONYMOUS = "anonymous"
 
 

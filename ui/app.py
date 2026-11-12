@@ -11,16 +11,22 @@ import streamlit as st
 from rdkit import Chem
 from rdkit.Chem import Draw
 
-from app.security import API_KEY_HEADER
-from minichem.config import get_settings
+from minichem.config import API_KEY_HEADER, get_settings
 from ui.route_view import show_routes
 
 SETTINGS = get_settings()
 REQUEST_TIMEOUT_S = 180
 EXAMPLES = [
-    "What is the SMILES of ibuprofen?",
-    "How many HBD and HBA does CC(=O)Oc1ccccc1C(=O)O have?",
-    "Generate analogues of ibuprofen with MW between 180 and 230 and show their SA scores",
+    "Найди маршрут ретросинтеза ибупрофена и покажи патентные прецеденты последнего шага: "
+    "реагенты, растворители, выход, патент, год.",
+    "Построй ретросинтез лидокаина. Для каждого шага маршрута покажи по два патентных "
+    "прецедента: реагенты, растворители, выход, патент, год.",
+    "Покажи патентные прецеденты для реакции 2-хлор-N-(2,6-диметилфенил)ацетамид + "
+    "диэтиламин -> лидокаин: реагенты, растворители, выходы, патенты.",
+    "Построй ретросинтез силденафила и покажи три прецедента для сульфонамидного шага с "
+    "N-метилпиперазином: какой с самым высоким выходом?",
+    "Найди маршрут ретросинтеза иматиниба. Если он решён не полностью, назови вещества, "
+    "которых нет в наличии, и покажи прецеденты для шага с амидной связью.",
 ]
 
 

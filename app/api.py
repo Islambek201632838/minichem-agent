@@ -21,9 +21,9 @@ from google.genai.errors import APIError
 from pydantic import BaseModel, Field
 
 from app.metrics import Metrics
-from app.security import ANONYMOUS, API_KEY_HEADER, RateLimiter, key_id, match_key
+from app.security import ANONYMOUS, RateLimiter, key_id, match_key
 from minichem.assistant import ChatResult, ChemAssistant, open_assistant
-from minichem.config import Settings, get_settings
+from minichem.config import API_KEY_HEADER, Settings, get_settings
 from minichem.jsonl import JsonlLog
 from minichem.sessions import SessionFullError
 

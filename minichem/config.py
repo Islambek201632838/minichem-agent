@@ -18,6 +18,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 MIN_API_KEY_CHARS = 16
+API_KEY_HEADER = "X-API-Key"  # shared by the API and the UI; the UI cannot import the `app` package
 
 
 class ConfigError(RuntimeError):
