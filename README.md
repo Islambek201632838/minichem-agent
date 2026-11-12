@@ -1,13 +1,17 @@
 # MiniChemAgent
 
-A small, tested multi-agent chemistry assistant. A LangGraph **supervisor** routes natural-language
+A tested multi-agent chemistry assistant. A LangGraph **supervisor** routes natural-language
 requests to three specialised agents (**utility**, **design**, **synthesis**) that call real
-cheminformatics tools (RDKit, PubChem) through native tool calling. It is a portfolio project that
-mirrors, at small scale, the architecture of AstraZeneca's paper
-*"Democratising real-world drug discovery through agentic AI"* (ChatInvent).
+cheminformatics tools (RDKit, PubChem) through native tool calling. It mirrors the architecture of
+AstraZeneca's paper *"Democratising real-world drug discovery through agentic AI"* (ChatInvent).
 
-It is not a production system: no auth, no database, no deployment. The goal is a codebase small
-enough to read in an afternoon and defend line by line.
+**Scope: a medium-grade system that runs locally.** The target is one person running it on one
+machine, with tests, safe failure and traceability, and no cloud services. It is deliberately not an
+enterprise platform. Only open or free software is used (Apache-2.0, MIT, BSD and similar); commercially
+closed tools are excluded. The one hosted service is the Gemini API (free tier) for the language model.
+What is done and what is still missing for this level is stated honestly below: the API has no
+authentication or rate limit, and conversation memory lives in process memory and is lost on restart
+(see Limitations and Future work; the ordered plan is in `.claude/rules/production-roadmap.md`).
 
 ## Ideas taken from the paper
 
@@ -187,8 +191,9 @@ provider's message.
 
 **Observability.** Every LLM call, tool call and routing step is one JSON line in `logs/trace.jsonl`
 (timestamp, session, agent, tool, arguments, duration, error, tokens). A LangChain callback sees local and
-MCP tools uniformly. Langfuse was **not** added: it needs an account, keys and an extra dependency, so
-it would not be offline-safe in a few lines.
+MCP tools uniformly. A hosted tracing service (Langfuse cloud) was **not** added: it is an external service
+that would receive users' chemistry questions, which does not fit a local-only system. A self-hosted or
+OpenTelemetry setup stays a possible later step.
 
 ## Tools
 
@@ -360,10 +365,14 @@ wrong molecular weight; a judge may not.
 - A real generative model (REINVENT) behind the same `generate_analogues` interface.
 - Golden questions and an automated test for retrosynthesis against a real AiZynthFinder install.
 - Handle-based tool arguments, so SMILES never pass through the model at all.
+- Local-production steps, in the order and with the reasons given in `.claude/rules/production-roadmap.md`:
+  a local check script and CI, a container setup that works with open runtimes, API-key auth and rate
+  limits, request and time limits for heavy searches, a persistent SQLite checkpointer for memory,
+  per-request logging, a code-level safety filter.
 - A2A so separately deployed agents can call each other; more MCP servers for other teams.
-- Long-conversation memory (summarisation, persistent checkpointer such as SQLite or Postgres).
-- Langfuse or OpenTelemetry on top of the existing trace, and a larger, harder golden set with adversarial
-  questions.
+- Long-conversation memory (summarisation).
+- A larger, harder golden set with adversarial questions, including a set of refusal questions for
+  hazardous and controlled substances.
 
 ## Repository layout
 

@@ -1,13 +1,19 @@
 # MiniChemAgent
 
 Multi-agent chemistry assistant: a LangGraph supervisor routes requests to three agents
-(utility, design, synthesis) that call RDKit/PubChem tools via native tool calling. Portfolio project
-mirroring AstraZeneca's ChatInvent paper, now being built towards production quality.
+(utility, design, synthesis) that call RDKit/PubChem tools via native tool calling. Mirrors AstraZeneca's
+ChatInvent paper; target level is a **medium-grade, local production system** (see Engineering stance).
 
 ## Engineering stance
-- **Build the robust, standard solution, not the minimal one.** Correct, tested, observable, and
-  failing safely. Add infrastructure (auth, persistence, containers, CI, rate limiting) when it makes
-  the system more reliable or deployable, and write down why. "Keep it small" is no longer a goal.
+- **Target: medium production, local.** Reliable, tested, observable, failing safely, and runnable by
+  one person on one machine (the owner's Mac) without cloud services. Not an enterprise platform: no
+  Kubernetes, no managed cloud, no multi-tenant features, nothing added only to look impressive. Add
+  infrastructure (auth, persistence, containers, local checks, rate limiting) when it makes the system
+  more reliable, and write down why. The ordered list is `.claude/rules/production-roadmap.md`.
+- **Open or free tools only.** No commercially closed software or paid SaaS may be a dependency
+  (for example OpenEye, hosted tracing services). Prefer permissive open licences (Apache-2.0, MIT,
+  BSD) and record the licence of anything new. Datasets need a licence that allows our use. The LLM
+  backend is the one existing hosted service (Gemini free tier); changing it is the owner's decision.
 - **The owner must still understand every decision.** Each non-trivial choice gets its reason in
   `.claude/rules/` or the README, in plain words, with the alternative that was rejected.
 - **Verify, never assume.** Run real models and real data for behaviour changes; report real numbers; say
